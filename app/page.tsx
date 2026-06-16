@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle, 
   Circle, 
+  Pencil,
   Trash2, 
   AlertCircle, 
   Wallet, 
@@ -548,13 +549,49 @@ export default function Dashboard() {
                         )}
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDeleteTask(task.id)} 
-                      className="self-end sm:self-center p-2 opacity-50 hover:opacity-100 transition-opacity shrink-0"
-                      aria-label="Delete task"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="self-end sm:self-center flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextText = prompt('Edit task name:', task.text);
+                          if (nextText === null) return;
+                          if (!nextText.trim()) return;
+
+                          const nextDescription = prompt('Edit description (optional):', task.description || '');
+                          if (nextDescription === null) return;
+
+                          const nextDeadline = prompt('Edit deadline (YYYY-MM-DDTHH:mm). Leave blank to clear:', task.deadline || '');
+                          if (nextDeadline === null) return;
+
+                          setTasks((prev) =>
+                            prev.map((t) =>
+                              t.id === task.id
+                                ? {
+                                    ...t,
+                                    text: nextText.trim(),
+                                    description: nextDescription.trim() ? nextDescription : undefined,
+                                    deadline: nextDeadline.trim(),
+                                  }
+                                : t
+                            )
+                          );
+                        }}
+                        className="p-2 opacity-50 hover:opacity-100 transition-opacity"
+                        aria-label="Edit task"
+                        title="Edit task"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => handleDeleteTask(task.id)} 
+                        className="p-2 opacity-50 hover:opacity-100 transition-opacity"
+                        aria-label="Delete task"
+                        title="Delete task"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </motion.li>
                 ))
               )}
@@ -615,13 +652,49 @@ export default function Dashboard() {
                           )}
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleDeleteTask(task.id)} 
-                        className="self-end sm:self-center p-2 opacity-50 hover:opacity-100 transition-opacity shrink-0"
-                        aria-label="Delete task"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="self-end sm:self-center flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextText = prompt('Edit task name:', task.text);
+                            if (nextText === null) return;
+                            if (!nextText.trim()) return;
+
+                            const nextDescription = prompt('Edit description (optional):', task.description || '');
+                            if (nextDescription === null) return;
+
+                            const nextDeadline = prompt('Edit deadline (YYYY-MM-DDTHH:mm). Leave blank to clear:', task.deadline || '');
+                            if (nextDeadline === null) return;
+
+                            setTasks((prev) =>
+                              prev.map((t) =>
+                                t.id === task.id
+                                  ? {
+                                      ...t,
+                                      text: nextText.trim(),
+                                      description: nextDescription.trim() ? nextDescription : undefined,
+                                      deadline: nextDeadline.trim(),
+                                    }
+                                  : t
+                              )
+                            );
+                          }}
+                          className="p-2 opacity-50 hover:opacity-100 transition-opacity"
+                          aria-label="Edit task"
+                          title="Edit task"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => handleDeleteTask(task.id)} 
+                          className="p-2 opacity-50 hover:opacity-100 transition-opacity"
+                          aria-label="Delete task"
+                          title="Delete task"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </motion.li>
                   ))}
                 </AnimatePresence>
@@ -1028,6 +1101,7 @@ export default function Dashboard() {
                     <th className="py-4 px-6">Due Date</th>
                     <th className="py-4 px-6 text-right">Amount</th>
                     <th className="py-4 px-6 text-center w-16">Paid</th>
+                    <th className="py-4 px-4 text-center w-12">Edit</th>
                     <th className="py-4 px-4 text-center w-12"></th>
                   </tr>
                 </thead>
@@ -1035,7 +1109,7 @@ export default function Dashboard() {
                   <AnimatePresence>
                     {bills.length === 0 ? (
                       <motion.tr key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                        <td colSpan={4} className="p-12 text-center text-neutral-400 font-sans uppercase text-[10px] font-bold tracking-widest border-b border-black/10">No pending liabilities.</td>
+                        <td colSpan={6} className="p-12 text-center text-neutral-400 font-sans uppercase text-[10px] font-bold tracking-widest border-b border-black/10">No pending liabilities.</td>
                       </motion.tr>
                     ) : (
                       bills.map((bill) => (
@@ -1092,6 +1166,40 @@ export default function Dashboard() {
                               title="Mark as Paid"
                             >
                               <CheckCircle size={20} className="stroke-2" />
+                            </button>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextName = prompt('Edit bill name:', bill.name);
+                                if (nextName === null) return;
+                                if (!nextName.trim()) return;
+
+                                const nextDueDate = prompt('Edit deadline (YYYY-MM-DD):', bill.dueDate);
+                                if (nextDueDate === null) return;
+                                if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate.trim())) return;
+
+                                const nextRepeatInput = prompt('Repeat monthly? (yes/no):', bill.repeatMonthly ? 'yes' : 'no');
+                                if (nextRepeatInput === null) return;
+                                const normalized = nextRepeatInput.trim().toLowerCase();
+                                const nextRepeatMonthly = normalized === 'yes' || normalized === 'y' || normalized === 'true';
+
+                                setBills((prev) =>
+                                  prev
+                                    .map((b) =>
+                                      b.id === bill.id
+                                        ? { ...b, name: nextName.trim(), dueDate: nextDueDate.trim(), repeatMonthly: nextRepeatMonthly }
+                                        : b
+                                    )
+                                    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                                );
+                              }}
+                              className="p-1 opacity-30 hover:opacity-100 transition-opacity text-black inline-block"
+                              aria-label="Edit bill"
+                              title="Edit bill"
+                            >
+                              <Pencil size={15} />
                             </button>
                           </td>
                           <td className="py-4 px-4 text-center">
