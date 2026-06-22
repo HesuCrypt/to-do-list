@@ -116,6 +116,7 @@ export default function Dashboard() {
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskDeadline, setNewTaskDeadline] = useState('');
+  const [newTaskDeadlineTime, setNewTaskDeadlineTime] = useState('');
   const [newTaskDeadlineType, setNewTaskDeadlineType] = useState<'date' | 'datetime'>('date');
   const [newTaskImportant, setNewTaskImportant] = useState(false);
   const [newTaskCategory, setNewTaskCategory] = useState<TaskCategory>('None');
@@ -261,11 +262,17 @@ export default function Dashboard() {
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
+    const deadline =
+      newTaskDeadlineType === 'datetime'
+        ? newTaskDeadline && newTaskDeadlineTime
+          ? `${newTaskDeadline}T${newTaskDeadlineTime}`
+          : newTaskDeadline
+        : newTaskDeadline;
     const newTask: Task = {
       id: crypto.randomUUID(),
       text: newTaskText,
       description: newTaskDescription.trim() || undefined,
-      deadline: newTaskDeadline,
+      deadline,
       isImportant: newTaskImportant,
       isCompleted: false,
       category: newTaskCategory,
@@ -275,6 +282,7 @@ export default function Dashboard() {
     setNewTaskText('');
     setNewTaskDescription('');
     setNewTaskDeadline('');
+    setNewTaskDeadlineTime('');
     setNewTaskImportant(false);
     setNewTaskCategory('None');
   };
@@ -422,7 +430,11 @@ export default function Dashboard() {
                 <button
                   key={t}
                   type="button"
-                  onClick={() => { setNewTaskDeadlineType(t); setNewTaskDeadline(''); }}
+                  onClick={() => {
+                    setNewTaskDeadlineType(t);
+                    setNewTaskDeadline('');
+                    setNewTaskDeadlineTime('');
+                  }}
                   className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider border border-black transition-colors ${
                     newTaskDeadlineType === t ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-100'
                   } ${t === 'date' ? 'border-r-0' : ''}`}
@@ -432,12 +444,20 @@ export default function Dashboard() {
               ))}
             </div>
             {newTaskDeadlineType === 'datetime' ? (
-              <input
-                type="datetime-local"
-                value={newTaskDeadline}
-                onChange={(e) => setNewTaskDeadline(e.target.value)}
-                className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
-              />
+              <div className="space-y-2">
+                <input
+                  type="date"
+                  value={newTaskDeadline}
+                  onChange={(e) => setNewTaskDeadline(e.target.value)}
+                  className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
+                />
+                <input
+                  type="time"
+                  value={newTaskDeadlineTime}
+                  onChange={(e) => setNewTaskDeadlineTime(e.target.value)}
+                  className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
+                />
+              </div>
             ) : (
               <input
                 type="date"
@@ -560,8 +580,20 @@ export default function Dashboard() {
                           const nextDescription = prompt('Edit description (optional):', task.description || '');
                           if (nextDescription === null) return;
 
-                          const nextDeadline = prompt('Edit deadline (YYYY-MM-DDTHH:mm). Leave blank to clear:', task.deadline || '');
-                          if (nextDeadline === null) return;
+                          const currentDate = task.deadline ? task.deadline.split('T')[0] : '';
+                          const currentTime = task.deadline && task.deadline.includes('T') ? task.deadline.split('T')[1] : '';
+                          const nextDate = prompt('Edit deadline date (YYYY-MM-DD). Leave blank to clear:', currentDate);
+                          if (nextDate === null) return;
+                          const nextTime = nextDate.trim()
+                            ? prompt('Edit deadline time (HH:MM). Leave blank for date-only:', currentTime)
+                            : '';
+                          if (nextTime === null) return;
+
+                          const nextDeadline = nextDate.trim()
+                            ? nextTime && nextTime.trim()
+                              ? `${nextDate.trim()}T${nextTime.trim()}`
+                              : nextDate.trim()
+                            : '';
 
                           setTasks((prev) =>
                             prev.map((t) =>
@@ -570,7 +602,7 @@ export default function Dashboard() {
                                     ...t,
                                     text: nextText.trim(),
                                     description: nextDescription.trim() ? nextDescription : undefined,
-                                    deadline: nextDeadline.trim(),
+                                    deadline: nextDeadline,
                                   }
                                 : t
                             )
@@ -663,8 +695,20 @@ export default function Dashboard() {
                             const nextDescription = prompt('Edit description (optional):', task.description || '');
                             if (nextDescription === null) return;
 
-                            const nextDeadline = prompt('Edit deadline (YYYY-MM-DDTHH:mm). Leave blank to clear:', task.deadline || '');
-                            if (nextDeadline === null) return;
+                            const currentDate = task.deadline ? task.deadline.split('T')[0] : '';
+                            const currentTime = task.deadline && task.deadline.includes('T') ? task.deadline.split('T')[1] : '';
+                            const nextDate = prompt('Edit deadline date (YYYY-MM-DD). Leave blank to clear:', currentDate);
+                            if (nextDate === null) return;
+                            const nextTime = nextDate.trim()
+                              ? prompt('Edit deadline time (HH:MM). Leave blank for date-only:', currentTime)
+                              : '';
+                            if (nextTime === null) return;
+
+                            const nextDeadline = nextDate.trim()
+                              ? nextTime && nextTime.trim()
+                                ? `${nextDate.trim()}T${nextTime.trim()}`
+                                : nextDate.trim()
+                              : '';
 
                             setTasks((prev) =>
                               prev.map((t) =>
@@ -673,7 +717,7 @@ export default function Dashboard() {
                                       ...t,
                                       text: nextText.trim(),
                                       description: nextDescription.trim() ? nextDescription : undefined,
-                                      deadline: nextDeadline.trim(),
+                                      deadline: nextDeadline,
                                     }
                                   : t
                               )
@@ -1259,6 +1303,13 @@ export default function Dashboard() {
                 </button>
               ))}
             </nav>
+            <a
+              href="/Bertillo_Louisse_resume.pdf"
+              download="Bertillo_Louisse_resume.pdf"
+              className="px-4 sm:px-6 py-2 border border-black font-semibold text-xs sm:text-sm uppercase transition-colors shrink-0 bg-white text-black hover:bg-black hover:text-white"
+            >
+              Download Resume
+            </a>
             <button
               onClick={() => setIsDark(!isDark)}
               className="p-2 border border-black bg-white text-black hover:bg-black hover:text-white transition-colors shrink-0 ml-2"
