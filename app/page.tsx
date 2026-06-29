@@ -52,6 +52,38 @@ type HomePaidState = {
   samsung?: string;
 };
 
+type MotoProfile = {
+  model: string;
+  basePrice: number | '';
+  currentOdometerKm: number | '';
+};
+
+type MotoAccessory = {
+  id: string;
+  name: string;
+  price: number;
+  date?: string;
+};
+
+type MotoFuelLog = {
+  id: string;
+  date: string;
+  odometerKm: number;
+  cost: number;
+  liters?: number;
+  notes?: string;
+};
+
+type MotoMaintenanceLog = {
+  id: string;
+  taskName: string;
+  datePerformed: string;
+  cost: number;
+  odometerKm?: number;
+  remindNextDate?: string;
+  nextServiceKm?: number;
+};
+
 // --- HELPERS ---
 const formatPHP = (amount: number) => {
   return new Intl.NumberFormat('en-PH', {
@@ -109,7 +141,7 @@ const isDueSoon = (dateString: string) => {
 
 // --- MAIN COMPONENT ---
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle'>('tasks');
 
   // Tasks State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -140,6 +172,32 @@ export default function Dashboard() {
   const [newBillDate, setNewBillDate] = useState('');
   const [newBillRepeatMonthly, setNewBillRepeatMonthly] = useState(false);
 
+  const [motoProfile, setMotoProfile] = useState<MotoProfile>({
+    model: '',
+    basePrice: '',
+    currentOdometerKm: '',
+  });
+  const [motoAccessories, setMotoAccessories] = useState<MotoAccessory[]>([]);
+  const [motoFuelLogs, setMotoFuelLogs] = useState<MotoFuelLog[]>([]);
+  const [motoMaintenanceLogs, setMotoMaintenanceLogs] = useState<MotoMaintenanceLog[]>([]);
+
+  const [newAccessoryName, setNewAccessoryName] = useState('');
+  const [newAccessoryPrice, setNewAccessoryPrice] = useState<number | ''>('');
+  const [newAccessoryDate, setNewAccessoryDate] = useState('');
+
+  const [newFuelDate, setNewFuelDate] = useState('');
+  const [newFuelOdometerKm, setNewFuelOdometerKm] = useState<number | ''>('');
+  const [newFuelLiters, setNewFuelLiters] = useState<number | ''>('');
+  const [newFuelCost, setNewFuelCost] = useState<number | ''>('');
+  const [newFuelNotes, setNewFuelNotes] = useState('');
+
+  const [newMaintenanceTaskName, setNewMaintenanceTaskName] = useState('');
+  const [newMaintenanceCost, setNewMaintenanceCost] = useState<number | ''>('');
+  const [newMaintenanceDatePerformed, setNewMaintenanceDatePerformed] = useState('');
+  const [newMaintenanceOdometerKm, setNewMaintenanceOdometerKm] = useState<number | ''>('');
+  const [newMaintenanceRemindDate, setNewMaintenanceRemindDate] = useState('');
+  const [newMaintenanceNextServiceKm, setNewMaintenanceNextServiceKm] = useState<number | ''>('');
+
   // Utilities State
   const [meralcoBill, setMeralcoBill] = useState<number | ''>('');
   const WIFI_BILL = 600;
@@ -162,6 +220,18 @@ export default function Dashboard() {
 
       const storedBills = localStorage.getItem('dash_bills');
       if (storedBills) setBills(JSON.parse(storedBills));
+
+      const storedMotoProfile = localStorage.getItem('dash_moto_profile');
+      if (storedMotoProfile) setMotoProfile(JSON.parse(storedMotoProfile));
+
+      const storedMotoAccessories = localStorage.getItem('dash_moto_accessories');
+      if (storedMotoAccessories) setMotoAccessories(JSON.parse(storedMotoAccessories));
+
+      const storedMotoFuelLogs = localStorage.getItem('dash_moto_fuelLogs');
+      if (storedMotoFuelLogs) setMotoFuelLogs(JSON.parse(storedMotoFuelLogs));
+
+      const storedMotoMaintenanceLogs = localStorage.getItem('dash_moto_maintenanceLogs');
+      if (storedMotoMaintenanceLogs) setMotoMaintenanceLogs(JSON.parse(storedMotoMaintenanceLogs));
 
       const storedHomePrice = localStorage.getItem('dash_homePrice');
       if (storedHomePrice && storedHomePrice !== '') setHomePrice(Number(storedHomePrice));
@@ -195,6 +265,22 @@ export default function Dashboard() {
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_bills', JSON.stringify(bills));
   }, [bills, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_moto_profile', JSON.stringify(motoProfile));
+  }, [motoProfile, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_moto_accessories', JSON.stringify(motoAccessories));
+  }, [motoAccessories, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_moto_fuelLogs', JSON.stringify(motoFuelLogs));
+  }, [motoFuelLogs, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_moto_maintenanceLogs', JSON.stringify(motoMaintenanceLogs));
+  }, [motoMaintenanceLogs, isClient]);
 
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_homePrice', homePrice.toString());
@@ -335,6 +421,77 @@ export default function Dashboard() {
 
   const handleDeleteBill = (id: string) => {
     setBills((prev) => prev.filter((b) => b.id !== id));
+  };
+
+  const handleAddAccessory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAccessoryName.trim() || newAccessoryPrice === '') return;
+    const newItem: MotoAccessory = {
+      id: crypto.randomUUID(),
+      name: newAccessoryName.trim(),
+      price: Number(newAccessoryPrice),
+      ...(newAccessoryDate ? { date: newAccessoryDate } : {}),
+    };
+    setMotoAccessories((prev) => [newItem, ...prev]);
+    setNewAccessoryName('');
+    setNewAccessoryPrice('');
+    setNewAccessoryDate('');
+  };
+
+  const handleDeleteAccessory = (id: string) => {
+    setMotoAccessories((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleAddFuelLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFuelDate || newFuelOdometerKm === '' || newFuelCost === '') return;
+    const newItem: MotoFuelLog = {
+      id: crypto.randomUUID(),
+      date: newFuelDate,
+      odometerKm: Number(newFuelOdometerKm),
+      cost: Number(newFuelCost),
+      ...(newFuelLiters === '' ? {} : { liters: Number(newFuelLiters) }),
+      ...(newFuelNotes.trim() ? { notes: newFuelNotes.trim() } : {}),
+    };
+    setMotoFuelLogs((prev) =>
+      [newItem, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    );
+    setNewFuelDate('');
+    setNewFuelOdometerKm('');
+    setNewFuelLiters('');
+    setNewFuelCost('');
+    setNewFuelNotes('');
+  };
+
+  const handleDeleteFuelLog = (id: string) => {
+    setMotoFuelLogs((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  const handleAddMaintenance = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMaintenanceTaskName.trim() || !newMaintenanceDatePerformed || newMaintenanceCost === '') return;
+    const newItem: MotoMaintenanceLog = {
+      id: crypto.randomUUID(),
+      taskName: newMaintenanceTaskName.trim(),
+      datePerformed: newMaintenanceDatePerformed,
+      cost: Number(newMaintenanceCost),
+      ...(newMaintenanceOdometerKm === '' ? {} : { odometerKm: Number(newMaintenanceOdometerKm) }),
+      ...(newMaintenanceRemindDate ? { remindNextDate: newMaintenanceRemindDate } : {}),
+      ...(newMaintenanceNextServiceKm === '' ? {} : { nextServiceKm: Number(newMaintenanceNextServiceKm) }),
+    };
+    setMotoMaintenanceLogs((prev) =>
+      [newItem, ...prev].sort((a, b) => new Date(b.datePerformed).getTime() - new Date(a.datePerformed).getTime())
+    );
+    setNewMaintenanceTaskName('');
+    setNewMaintenanceCost('');
+    setNewMaintenanceDatePerformed('');
+    setNewMaintenanceOdometerKm('');
+    setNewMaintenanceRemindDate('');
+    setNewMaintenanceNextServiceKm('');
+  };
+
+  const handleDeleteMaintenance = (id: string) => {
+    setMotoMaintenanceLogs((prev) => prev.filter((x) => x.id !== id));
   };
 
   const advanceBillOneMonth = (bill: Bill): Bill => {
@@ -1269,6 +1426,518 @@ export default function Dashboard() {
     );
   };
 
+  const renderMotorcycleTab = () => {
+    const basePriceNumeric = motoProfile.basePrice === '' ? 0 : Number(motoProfile.basePrice);
+    const accessoriesTotal = motoAccessories.reduce((acc, a) => acc + (Number.isFinite(a.price) ? a.price : 0), 0);
+    const fuelTotal = motoFuelLogs.reduce((acc, x) => acc + (Number.isFinite(x.cost) ? x.cost : 0), 0);
+    const maintenanceTotal = motoMaintenanceLogs.reduce((acc, x) => acc + (Number.isFinite(x.cost) ? x.cost : 0), 0);
+    const totalInvestment = basePriceNumeric + accessoriesTotal + fuelTotal + maintenanceTotal;
+
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="border border-black p-8 sm:p-10 bg-white">
+          <h2 className="text-3xl font-extrabold uppercase tracking-tighter mb-2">Motorcycle Expense Tracker</h2>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-50">Local Storage Active</p>
+        </div>
+
+        <div className="border border-black bg-black text-white p-6 sm:p-8 flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Total Investment</p>
+            <div className="text-4xl sm:text-5xl font-extrabold tracking-tighter mt-2">{formatPHP(totalInvestment)}</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto">
+            {[
+              { label: 'Vehicle', value: basePriceNumeric },
+              { label: 'Accessories', value: accessoriesTotal },
+              { label: 'Gas & Fuel', value: fuelTotal },
+              { label: 'Maintenance', value: maintenanceTotal },
+            ].map((c) => (
+              <div key={c.label} className="border border-white/20 bg-black p-3 min-w-[140px]">
+                <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">{c.label}</p>
+                <p className="text-lg font-extrabold mt-1">{formatPHP(c.value)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-4 space-y-8">
+            <div className="border border-black bg-white">
+              <div className="border-b border-black p-6 py-4 bg-neutral-100">
+                <h3 className="text-lg font-extrabold uppercase tracking-tight">Vehicle Asset</h3>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Motorcycle Name / Model</label>
+                  <input
+                    type="text"
+                    value={motoProfile.model}
+                    onChange={(e) => setMotoProfile((prev) => ({ ...prev, model: e.target.value }))}
+                    className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                    placeholder="e.g. Honda PCX Roadsync"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Base Price (Fixed Cost)</label>
+                  <div className="flex items-center">
+                    <span className="text-lg font-extrabold mr-2">₱</span>
+                    <input
+                      type="number"
+                      value={motoProfile.basePrice}
+                      onChange={(e) =>
+                        setMotoProfile((prev) => ({
+                          ...prev,
+                          basePrice: e.target.value !== '' ? Number(e.target.value) : '',
+                        }))
+                      }
+                      className="w-full bg-transparent border-b-2 border-black/20 px-0 py-2 text-2xl font-extrabold focus:outline-none focus:border-black transition-colors placeholder-black/20"
+                      placeholder="0.00"
+                      min={0}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Current Odometer (KM)</label>
+                  <input
+                    type="number"
+                    value={motoProfile.currentOdometerKm}
+                    onChange={(e) =>
+                      setMotoProfile((prev) => ({
+                        ...prev,
+                        currentOdometerKm: e.target.value !== '' ? Number(e.target.value) : '',
+                      }))
+                    }
+                    className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                    placeholder="0"
+                    min={0}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-black bg-white">
+              <div className="border-b border-black p-6 py-4 bg-neutral-100 flex items-center justify-between">
+                <h3 className="text-lg font-extrabold uppercase tracking-tight">Accessories</h3>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{formatPHP(accessoriesTotal)}</span>
+              </div>
+              <div className="p-6 space-y-6">
+                <div className="space-y-3">
+                  {motoAccessories.length === 0 ? (
+                    <div className="text-center text-neutral-400 uppercase text-[10px] font-bold tracking-widest py-8 border border-black/10">
+                      No accessories added.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-black/10 border border-black">
+                      {motoAccessories.map((a) => (
+                        <li key={a.id} className="p-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold truncate">{a.name}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+                              {a.date ? formatDate(a.date) : '--'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <p className="text-sm font-extrabold">{formatPHP(a.price)}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextName = prompt('Edit accessory name:', a.name);
+                                if (nextName === null) return;
+                                if (!nextName.trim()) return;
+                                const nextPriceInput = prompt('Edit accessory price (₱):', String(a.price));
+                                if (nextPriceInput === null) return;
+                                const nextPrice = Number(nextPriceInput);
+                                if (!Number.isFinite(nextPrice) || nextPrice < 0) return;
+                                const nextDate = prompt('Edit date (YYYY-MM-DD). Leave blank to clear:', a.date || '');
+                                if (nextDate === null) return;
+                                setMotoAccessories((prev) =>
+                                  prev.map((x) =>
+                                    x.id === a.id
+                                      ? { ...x, name: nextName.trim(), price: nextPrice, date: nextDate.trim() || undefined }
+                                      : x
+                                  )
+                                );
+                              }}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Edit accessory"
+                              title="Edit accessory"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAccessory(a.id)}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Delete accessory"
+                              title="Delete accessory"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <form onSubmit={handleAddAccessory} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-6">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Item Name</label>
+                      <input
+                        type="text"
+                        value={newAccessoryName}
+                        onChange={(e) => setNewAccessoryName(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="Item name"
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Price</label>
+                      <input
+                        type="number"
+                        value={newAccessoryPrice}
+                        onChange={(e) => setNewAccessoryPrice(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="0"
+                        min={0}
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Date</label>
+                      <input
+                        type="date"
+                        value={newAccessoryDate}
+                        onChange={(e) => setNewAccessoryDate(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-xs uppercase font-semibold"
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full bg-black text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2">
+                    <Plus size={16} /> Add Accessory
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-4">
+            <div className="border border-black bg-white h-full flex flex-col">
+              <div className="border-b border-black p-6 py-4 bg-neutral-100 flex items-center justify-between">
+                <h3 className="text-lg font-extrabold uppercase tracking-tight">Fuel Consumption Log</h3>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{formatPHP(fuelTotal)}</span>
+              </div>
+              <div className="p-6 flex-grow flex flex-col gap-6">
+                <div className="space-y-3 flex-grow">
+                  {motoFuelLogs.length === 0 ? (
+                    <div className="text-center text-neutral-400 uppercase text-[10px] font-bold tracking-widest py-8 border border-black/10">
+                      No fuel logs added.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-black/10 border border-black overflow-hidden">
+                      {motoFuelLogs.map((x) => (
+                        <li key={x.id} className="p-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold truncate">{formatDate(x.date)} • {x.odometerKm.toLocaleString()} KM</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+                              {typeof x.liters === 'number' ? `${x.liters.toFixed(2)} L` : '--'} {x.notes ? `• ${x.notes}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <p className="text-sm font-extrabold">{formatPHP(x.cost)}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextDate = prompt('Edit date (YYYY-MM-DD):', x.date);
+                                if (nextDate === null) return;
+                                if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate.trim())) return;
+                                const nextOdoInput = prompt('Edit odometer (KM):', String(x.odometerKm));
+                                if (nextOdoInput === null) return;
+                                const nextOdo = Number(nextOdoInput);
+                                if (!Number.isFinite(nextOdo) || nextOdo < 0) return;
+                                const nextCostInput = prompt('Edit cost (₱):', String(x.cost));
+                                if (nextCostInput === null) return;
+                                const nextCost = Number(nextCostInput);
+                                if (!Number.isFinite(nextCost) || nextCost < 0) return;
+                                const nextLitersInput = prompt('Edit liters (optional):', typeof x.liters === 'number' ? String(x.liters) : '');
+                                if (nextLitersInput === null) return;
+                                const nextNotes = prompt('Edit notes (optional):', x.notes || '');
+                                if (nextNotes === null) return;
+                                const nextLitersTrim = nextLitersInput.trim();
+                                const nextLiters =
+                                  nextLitersTrim === '' ? undefined : Number.isFinite(Number(nextLitersTrim)) ? Number(nextLitersTrim) : undefined;
+                                setMotoFuelLogs((prev) =>
+                                  prev
+                                    .map((y) =>
+                                      y.id === x.id
+                                        ? { ...y, date: nextDate.trim(), odometerKm: nextOdo, cost: nextCost, liters: nextLiters, notes: nextNotes.trim() || undefined }
+                                        : y
+                                    )
+                                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                );
+                              }}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Edit fuel log"
+                              title="Edit fuel log"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFuelLog(x.id)}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Delete fuel log"
+                              title="Delete fuel log"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <form onSubmit={handleAddFuelLog} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Date</label>
+                      <input
+                        type="date"
+                        value={newFuelDate}
+                        onChange={(e) => setNewFuelDate(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-xs uppercase font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">KM</label>
+                      <input
+                        type="number"
+                        value={newFuelOdometerKm}
+                        onChange={(e) => setNewFuelOdometerKm(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="Odometer"
+                        min={0}
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Amount</label>
+                      <input
+                        type="number"
+                        value={newFuelCost}
+                        onChange={(e) => setNewFuelCost(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="₱"
+                        min={0}
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-6">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Liters (Optional)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newFuelLiters}
+                        onChange={(e) => setNewFuelLiters(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="0.00"
+                        min={0}
+                      />
+                    </div>
+                    <div className="sm:col-span-6">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Notes (Optional)</label>
+                      <input
+                        type="text"
+                        value={newFuelNotes}
+                        onChange={(e) => setNewFuelNotes(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="Shell / Petron..."
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full bg-black text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2">
+                    <Plus size={16} /> Log Gas
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-4">
+            <div className="border border-black bg-white h-full flex flex-col">
+              <div className="border-b border-black p-6 py-4 bg-neutral-100 flex items-center justify-between">
+                <h3 className="text-lg font-extrabold uppercase tracking-tight">Maintenance & Service</h3>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{formatPHP(maintenanceTotal)}</span>
+              </div>
+              <div className="p-6 flex-grow flex flex-col gap-6">
+                <div className="space-y-3 flex-grow">
+                  {motoMaintenanceLogs.length === 0 ? (
+                    <div className="text-center text-neutral-400 uppercase text-[10px] font-bold tracking-widest py-8 border border-black/10">
+                      No maintenance logs added.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-black/10 border border-black overflow-hidden">
+                      {motoMaintenanceLogs.map((x) => (
+                        <li key={x.id} className="p-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold truncate">{x.taskName}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+                              {formatDate(x.datePerformed)}
+                              {typeof x.odometerKm === 'number' ? ` • ${x.odometerKm.toLocaleString()} KM` : ''}
+                              {x.remindNextDate ? ` • Remind: ${formatDate(x.remindNextDate)}` : ''}
+                              {typeof x.nextServiceKm === 'number' ? ` • Next: ${x.nextServiceKm.toLocaleString()} KM` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <p className="text-sm font-extrabold">{formatPHP(x.cost)}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextTaskName = prompt('Edit task name:', x.taskName);
+                                if (nextTaskName === null) return;
+                                if (!nextTaskName.trim()) return;
+                                const nextDatePerformed = prompt('Edit date performed (YYYY-MM-DD):', x.datePerformed);
+                                if (nextDatePerformed === null) return;
+                                if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDatePerformed.trim())) return;
+                                const nextCostInput = prompt('Edit cost (₱):', String(x.cost));
+                                if (nextCostInput === null) return;
+                                const nextCost = Number(nextCostInput);
+                                if (!Number.isFinite(nextCost) || nextCost < 0) return;
+                                const nextOdoInput = prompt('Edit odometer (KM) optional:', typeof x.odometerKm === 'number' ? String(x.odometerKm) : '');
+                                if (nextOdoInput === null) return;
+                                const nextRemind = prompt('Edit remind next date (YYYY-MM-DD) optional:', x.remindNextDate || '');
+                                if (nextRemind === null) return;
+                                const nextNextKmInput = prompt('Edit next service KM optional:', typeof x.nextServiceKm === 'number' ? String(x.nextServiceKm) : '');
+                                if (nextNextKmInput === null) return;
+                                const odoTrim = nextOdoInput.trim();
+                                const nextKmTrim = nextNextKmInput.trim();
+                                const nextOdo =
+                                  odoTrim === '' ? undefined : Number.isFinite(Number(odoTrim)) ? Number(odoTrim) : undefined;
+                                const nextNextKm =
+                                  nextKmTrim === '' ? undefined : Number.isFinite(Number(nextKmTrim)) ? Number(nextKmTrim) : undefined;
+                                setMotoMaintenanceLogs((prev) =>
+                                  prev
+                                    .map((y) =>
+                                      y.id === x.id
+                                        ? {
+                                            ...y,
+                                            taskName: nextTaskName.trim(),
+                                            datePerformed: nextDatePerformed.trim(),
+                                            cost: nextCost,
+                                            odometerKm: nextOdo,
+                                            remindNextDate: nextRemind.trim() || undefined,
+                                            nextServiceKm: nextNextKm,
+                                          }
+                                        : y
+                                    )
+                                    .sort((a, b) => new Date(b.datePerformed).getTime() - new Date(a.datePerformed).getTime())
+                                );
+                              }}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Edit maintenance"
+                              title="Edit maintenance"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMaintenance(x.id)}
+                              className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                              aria-label="Delete maintenance"
+                              title="Delete maintenance"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <form onSubmit={handleAddMaintenance} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-7">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Task Name</label>
+                      <input
+                        type="text"
+                        value={newMaintenanceTaskName}
+                        onChange={(e) => setNewMaintenanceTaskName(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="Oil change, tires..."
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-5">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Cost</label>
+                      <input
+                        type="number"
+                        value={newMaintenanceCost}
+                        onChange={(e) => setNewMaintenanceCost(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="₱"
+                        min={0}
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Date Performed</label>
+                      <input
+                        type="date"
+                        value={newMaintenanceDatePerformed}
+                        onChange={(e) => setNewMaintenanceDatePerformed(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-xs uppercase font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Current Odometer</label>
+                      <input
+                        type="number"
+                        value={newMaintenanceOdometerKm}
+                        onChange={(e) => setNewMaintenanceOdometerKm(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="KM"
+                        min={0}
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Next Service KM</label>
+                      <input
+                        type="number"
+                        value={newMaintenanceNextServiceKm}
+                        onChange={(e) => setNewMaintenanceNextServiceKm(e.target.value !== '' ? Number(e.target.value) : '')}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                        placeholder="KM"
+                        min={0}
+                      />
+                    </div>
+                    <div className="sm:col-span-12">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Remind: Next Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={newMaintenanceRemindDate}
+                        onChange={(e) => setNewMaintenanceRemindDate(e.target.value)}
+                        className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-xs uppercase font-semibold"
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full bg-black text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2">
+                    <Plus size={16} /> Schedule Maintenance
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={`min-h-screen bg-white text-black font-sans selection:bg-black selection:text-white pb-10 flex flex-col transition-[filter] duration-300 ${isDark ? 'invert' : ''}`}>
       {!isClient ? null : (
@@ -1288,6 +1957,7 @@ export default function Dashboard() {
                 { id: 'tasks', label: 'Tasks' },
                 { id: 'overtime', label: 'Overtime' },
                 { id: 'finance', label: 'Finance' },
+                { id: 'motorcycle', label: 'Motorcycle' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -1303,13 +1973,6 @@ export default function Dashboard() {
                 </button>
               ))}
             </nav>
-            <a
-              href="/Bertillo_Louisse_resume.pdf"
-              download="Bertillo_Louisse_resume.pdf"
-              className="px-4 sm:px-6 py-2 border border-black font-semibold text-xs sm:text-sm uppercase transition-colors shrink-0 bg-white text-black hover:bg-black hover:text-white"
-            >
-              Download Resume
-            </a>
             <button
               onClick={() => setIsDark(!isDark)}
               className="p-2 border border-black bg-white text-black hover:bg-black hover:text-white transition-colors shrink-0 ml-2"
@@ -1325,6 +1988,7 @@ export default function Dashboard() {
           {activeTab === 'tasks' && renderTasksTab()}
           {activeTab === 'overtime' && renderOvertimeTab()}
           {activeTab === 'finance' && renderFinanceTab()}
+          {activeTab === 'motorcycle' && renderMotorcycleTab()}
         </main>
 
       </div>
