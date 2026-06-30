@@ -164,6 +164,48 @@ const getNextDueDate = (dayOfMonth: number) => {
   return new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth);
 };
 
+const DASH_DB_NAME = 'dash_local_db';
+const DASH_DB_VERSION = 1;
+const DASH_DB_STORE = 'snapshots';
+const DASH_DB_KEY = 'dashboard';
+
+const openDashDb = () => {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open(DASH_DB_NAME, DASH_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(DASH_DB_STORE)) {
+        db.createObjectStore(DASH_DB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const idbSetDashboardSnapshot = async (snapshot: unknown) => {
+  const db = await openDashDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(DASH_DB_STORE, 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(DASH_DB_STORE).put(snapshot, DASH_DB_KEY);
+  });
+  db.close();
+};
+
+const getDashSnapshot = (storage: Storage) => {
+  const kv: Record<string, string> = {};
+  for (let i = 0; i < storage.length; i += 1) {
+    const k = storage.key(i);
+    if (!k || !k.startsWith('dash_')) continue;
+    kv[k] = storage.getItem(k) ?? '';
+  }
+  const updatedAt = kv['dash_updatedAt'] || new Date().toISOString();
+  kv['dash_updatedAt'] = updatedAt;
+  return { kv, updatedAt };
+};
+
 // --- MAIN COMPONENT ---
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle'>('tasks');
@@ -189,9 +231,6 @@ export default function Dashboard() {
   const NORMAL_HOURS = 9;
 
   // Finance State
-  const [homePrice, setHomePrice] = useState<number | ''>('');
-  const [bankBalance, setBankBalance] = useState<number | ''>('');
-  
   const [bills, setBills] = useState<Bill[]>([]);
   const [newBillName, setNewBillName] = useState('');
   const [newBillDate, setNewBillDate] = useState('');
@@ -277,12 +316,6 @@ export default function Dashboard() {
       const storedMotoMaintenanceLogs = localStorage.getItem('dash_moto_maintenanceLogs');
       if (storedMotoMaintenanceLogs) setMotoMaintenanceLogs(JSON.parse(storedMotoMaintenanceLogs));
 
-      const storedHomePrice = localStorage.getItem('dash_homePrice');
-      if (storedHomePrice && storedHomePrice !== '') setHomePrice(Number(storedHomePrice));
-
-      const storedBankBalance = localStorage.getItem('dash_bankBalance');
-      if (storedBankBalance && storedBankBalance !== '') setBankBalance(Number(storedBankBalance));
-
       const currentHomeCycleKey = getHomeCycleKey(new Date());
       const storedMeralcoBillMonthKey = localStorage.getItem('dash_meralcoBill_monthKey');
       const storedMeralcoBill = localStorage.getItem('dash_meralcoBill');
@@ -339,14 +372,6 @@ export default function Dashboard() {
   }, [motoMaintenanceLogs, isClient]);
 
   useEffect(() => {
-    if (isClient) localStorage.setItem('dash_homePrice', homePrice.toString());
-  }, [homePrice, isClient]);
-
-  useEffect(() => {
-    if (isClient) localStorage.setItem('dash_bankBalance', bankBalance.toString());
-  }, [bankBalance, isClient]);
-
-  useEffect(() => {
     if (!isClient) return;
     localStorage.setItem('dash_meralcoBill', meralcoBill.toString());
     localStorage.setItem('dash_meralcoBill_monthKey', getHomeCycleKey(new Date()));
@@ -363,6 +388,29 @@ export default function Dashboard() {
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_theme', isDark ? 'dark' : 'light');
   }, [isDark, isClient]);
+
+  useEffect(() => {
+    if (!isClient) return;
+    const nowIso = new Date().toISOString();
+    localStorage.setItem('dash_updatedAt', nowIso);
+    const snapshot = getDashSnapshot(localStorage);
+    void idbSetDashboardSnapshot(snapshot);
+  }, [
+    tasks,
+    workLogs,
+    bills,
+    meralcoBill,
+    samsungRemaining,
+    homePaid,
+    isDark,
+    dayExpensesTotal,
+    dayExpensesLastReset,
+    motoProfile,
+    motoAccessories,
+    motoFuelLogs,
+    motoMaintenanceLogs,
+    isClient,
+  ]);
 
   const calculateLoggedHours = (inTime: string, outTime: string) => {
     if (!inTime || !outTime) return '';
@@ -1119,10 +1167,6 @@ export default function Dashboard() {
   };
 
   const renderFinanceTab = () => {
-    const debtNumeric = homePrice === '' ? 0 : Number(homePrice);
-    const bankNumeric = bankBalance === '' ? 0 : Number(bankBalance);
-    const remainingDebt = Math.max(0, debtNumeric - bankNumeric);
-
     const meralcoNumeric = meralcoBill === '' ? 0 : Number(meralcoBill);
     const samsungRemainingNumeric = samsungRemaining === '' ? 0 : Number(samsungRemaining);
     const samsungPaymentDue = samsungRemainingNumeric > 0 ? Math.min(SAMSUNG_BILL, samsungRemainingNumeric) : 0;
@@ -1147,50 +1191,6 @@ export default function Dashboard() {
 
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
-        
-        {/* Debt Calculator */}
-        <div className="border border-black flex flex-col md:flex-row shadow-none">
-          <div className="bg-white p-8 sm:p-10 flex-grow border-b md:border-b-0 md:border-r border-black">
-            <h2 className="text-3xl font-extrabold uppercase tracking-tighter mb-8 pb-4 flex flex-col">
-              Finance Tracking
-              <span className="text-[10px] font-bold uppercase tracking-widest opacity-50 mt-1">PHP ₱ Allocation Module</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider opacity-50 mb-2">Total Home Price / Setup</label>
-                <div className="flex items-center">
-                  <span className="text-xl font-extrabold mr-2">₱</span>
-                  <input 
-                    type="number" 
-                    value={homePrice}
-                    onChange={(e) => setHomePrice(e.target.value !== '' ? Number(e.target.value) : '')}
-                    className="w-full bg-transparent border-b-2 border-black/20 px-0 py-2 text-2xl font-extrabold focus:outline-none focus:border-black transition-colors placeholder-black/20"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider opacity-50 mb-2">Current Bank Allocation</label>
-                <div className="flex items-center">
-                  <span className="text-xl font-extrabold mr-2">₱</span>
-                  <input 
-                    type="number" 
-                    value={bankBalance}
-                    onChange={(e) => setBankBalance(e.target.value !== '' ? Number(e.target.value) : '')}
-                    className="w-full bg-transparent border-b-2 border-black/20 px-0 py-2 text-2xl font-extrabold focus:outline-none focus:border-black transition-colors placeholder-black/20"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-black text-white p-8 sm:p-10 shrink-0 flex flex-col justify-center min-w-[300px]">
-             <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2 border-b border-white/20 pb-2">Remaining Target Setup</label>
-             <div className="text-3xl sm:text-4xl font-extrabold tracking-tighter mt-2 break-all">
-               {formatPHP(remainingDebt)}
-             </div>
-          </div>
-        </div>
 
         {/* Home Utilities */}
         <div className="border border-black flex flex-col md:flex-row shadow-none">
