@@ -84,6 +84,11 @@ type MotoMaintenanceLog = {
   nextServiceKm?: number;
 };
 
+type DayExpensesLastReset = {
+  total: number;
+  at: string;
+};
+
 // --- HELPERS ---
 const formatPHP = (amount: number) => {
   return new Intl.NumberFormat('en-PH', {
@@ -192,6 +197,11 @@ export default function Dashboard() {
   const [newBillDate, setNewBillDate] = useState('');
   const [newBillRepeatMonthly, setNewBillRepeatMonthly] = useState(false);
 
+  const [dayExpensesTotal, setDayExpensesTotal] = useState(0);
+  const [dayExpensesAmount, setDayExpensesAmount] = useState<number | ''>('');
+  const [dayExpensesLastReset, setDayExpensesLastReset] = useState<DayExpensesLastReset | null>(null);
+  const [dayExpensesCopied, setDayExpensesCopied] = useState(false);
+
   const [motoProfile, setMotoProfile] = useState<MotoProfile>({
     model: '',
     basePrice: '',
@@ -241,6 +251,20 @@ export default function Dashboard() {
       const storedBills = localStorage.getItem('dash_bills');
       if (storedBills) setBills(JSON.parse(storedBills));
 
+      const storedDayExpensesTotal = localStorage.getItem('dash_dayExpenses_total');
+      if (storedDayExpensesTotal && storedDayExpensesTotal !== '') {
+        const n = Number(storedDayExpensesTotal);
+        if (Number.isFinite(n)) setDayExpensesTotal(n);
+      }
+
+      const storedDayExpensesLastReset = localStorage.getItem('dash_dayExpenses_lastReset');
+      if (storedDayExpensesLastReset) {
+        try {
+          const parsed = JSON.parse(storedDayExpensesLastReset);
+          if (parsed && typeof parsed.total === 'number' && typeof parsed.at === 'string') setDayExpensesLastReset(parsed);
+        } catch {}
+      }
+
       const storedMotoProfile = localStorage.getItem('dash_moto_profile');
       if (storedMotoProfile) setMotoProfile(JSON.parse(storedMotoProfile));
 
@@ -289,6 +313,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_bills', JSON.stringify(bills));
   }, [bills, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_dayExpenses_total', String(dayExpensesTotal));
+  }, [dayExpensesTotal, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_dayExpenses_lastReset', JSON.stringify(dayExpensesLastReset));
+  }, [dayExpensesLastReset, isClient]);
 
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_moto_profile', JSON.stringify(motoProfile));
@@ -436,6 +468,38 @@ export default function Dashboard() {
 
   const handleDeleteBill = (id: string) => {
     setBills((prev) => prev.filter((b) => b.id !== id));
+  };
+
+  const handleAddDayExpense = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (dayExpensesAmount === '') return;
+    const value = Number(dayExpensesAmount);
+    if (!Number.isFinite(value) || value <= 0) return;
+    setDayExpensesTotal((prev) => prev + value);
+    setDayExpensesAmount('');
+  };
+
+  const handleResetDayExpenses = () => {
+    const total = dayExpensesTotal;
+    setDayExpensesLastReset({ total, at: new Date().toISOString() });
+    setDayExpensesTotal(0);
+    setDayExpensesAmount('');
+    setDayExpensesCopied(false);
+  };
+
+  const handleCopyDayExpensesTotal = async () => {
+    const text = String(dayExpensesTotal);
+    try {
+      await navigator.clipboard.writeText(text);
+      setDayExpensesCopied(true);
+      window.setTimeout(() => setDayExpensesCopied(false), 1200);
+    } catch {
+      const fallback = prompt('Copy total:', text);
+      if (fallback !== null) {
+        setDayExpensesCopied(true);
+        window.setTimeout(() => setDayExpensesCopied(false), 1200);
+      }
+    }
   };
 
   const handleAddAccessory = (e: React.FormEvent) => {
@@ -1218,6 +1282,69 @@ export default function Dashboard() {
              <div className="text-3xl sm:text-4xl font-extrabold tracking-tighter mt-2 break-all">
                {formatPHP(totalUtilities)}
              </div>
+          </div>
+        </div>
+
+        <div className="border border-black flex flex-col md:flex-row shadow-none">
+          <div className="bg-white p-8 sm:p-10 flex-grow border-b md:border-b-0 md:border-r border-black">
+            <h2 className="text-xl font-extrabold uppercase tracking-tight mb-6 pb-2 border-b border-black">
+              Day Expenses Tracker
+            </h2>
+            <form onSubmit={handleAddDayExpense} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider opacity-50 mb-2">Amount (₱)</label>
+                <input
+                  type="number"
+                  value={dayExpensesAmount}
+                  onChange={(e) => setDayExpensesAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                  className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                  placeholder="0.00"
+                  min={0}
+                  step="0.01"
+                  required
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  className="flex-1 bg-black text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyDayExpensesTotal}
+                  className={`flex-1 border border-black px-6 py-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${dayExpensesCopied ? 'bg-black text-white' : 'bg-white text-black hover:bg-black hover:text-white'}`}
+                >
+                  {dayExpensesCopied ? 'Copied' : 'Copy Total'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetDayExpenses}
+                  className="flex-1 border border-black bg-white text-black px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-100 transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
+            </form>
+
+            {dayExpensesLastReset && (
+              <div className="mt-6 border border-black p-4 bg-neutral-50">
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Last Reset</p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold">{formatDate(dayExpensesLastReset.at)}</span>
+                  <span className="text-sm font-extrabold">{formatPHP(dayExpensesLastReset.total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="bg-black text-white p-8 sm:p-10 shrink-0 flex flex-col justify-center min-w-[300px]">
+            <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2 border-b border-white/20 pb-2">
+              Current Total (Since Last Reset)
+            </label>
+            <div className="text-3xl sm:text-4xl font-extrabold tracking-tighter mt-2 break-all">
+              {formatPHP(dayExpensesTotal)}
+            </div>
           </div>
         </div>
 
