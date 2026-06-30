@@ -139,6 +139,26 @@ const isDueSoon = (dateString: string) => {
   return daysDiff <= 3;
 };
 
+const getMonthKey = (date: Date) => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getHomeCycleKey = (date: Date) => {
+  const resetDay = 20;
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const cycleDate = d >= resetDay ? new Date(y, m, 1) : new Date(y, m - 1, 1);
+  return getMonthKey(cycleDate);
+};
+
+const getNextDueDate = (dayOfMonth: number) => {
+  const now = new Date();
+  const dueThisMonth = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
+  if (now.getTime() <= dueThisMonth.getTime()) return dueThisMonth;
+  return new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth);
+};
+
 // --- MAIN COMPONENT ---
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle'>('tasks');
@@ -239,8 +259,12 @@ export default function Dashboard() {
       const storedBankBalance = localStorage.getItem('dash_bankBalance');
       if (storedBankBalance && storedBankBalance !== '') setBankBalance(Number(storedBankBalance));
 
+      const currentHomeCycleKey = getHomeCycleKey(new Date());
+      const storedMeralcoBillMonthKey = localStorage.getItem('dash_meralcoBill_monthKey');
       const storedMeralcoBill = localStorage.getItem('dash_meralcoBill');
-      if (storedMeralcoBill && storedMeralcoBill !== '') setMeralcoBill(Number(storedMeralcoBill));
+      if (storedMeralcoBillMonthKey === currentHomeCycleKey && storedMeralcoBill && storedMeralcoBill !== '') {
+        setMeralcoBill(Number(storedMeralcoBill));
+      }
 
       const storedSamsungRemaining = localStorage.getItem('dash_samsungRemaining');
       if (storedSamsungRemaining && storedSamsungRemaining !== '') setSamsungRemaining(Number(storedSamsungRemaining));
@@ -291,7 +315,9 @@ export default function Dashboard() {
   }, [bankBalance, isClient]);
 
   useEffect(() => {
-    if (isClient) localStorage.setItem('dash_meralcoBill', meralcoBill.toString());
+    if (!isClient) return;
+    localStorage.setItem('dash_meralcoBill', meralcoBill.toString());
+    localStorage.setItem('dash_meralcoBill_monthKey', getHomeCycleKey(new Date()));
   }, [meralcoBill, isClient]);
 
   useEffect(() => {
@@ -315,27 +341,16 @@ export default function Dashboard() {
     return Number((diff / 60).toFixed(2));
   };
 
-  const getMonthKey = (date: Date) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-  };
-
-  const getNextDueDate = (dayOfMonth: number) => {
-    const now = new Date();
-    const dueThisMonth = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
-    if (now.getTime() <= dueThisMonth.getTime()) return dueThisMonth;
-    return new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth);
-  };
-
   const handlePayAllHomeUtilities = () => {
-    const monthKey = getMonthKey(new Date());
+    const cycleKey = getHomeCycleKey(new Date());
     const remaining = samsungRemaining === '' ? 0 : Number(samsungRemaining);
-    const shouldPaySamsung = remaining > 0 && homePaid.samsung !== monthKey;
+    const shouldPaySamsung = remaining > 0 && homePaid.samsung !== cycleKey;
 
     setHomePaid((prev) => ({
       ...prev,
-      meralco: monthKey,
-      wifi: monthKey,
-      ...(remaining > 0 ? { samsung: monthKey } : {}),
+      meralco: cycleKey,
+      wifi: cycleKey,
+      ...(remaining > 0 ? { samsung: cycleKey } : {}),
     }));
 
     if (shouldPaySamsung) {
@@ -1049,11 +1064,11 @@ export default function Dashboard() {
     const samsungPaymentDue = samsungRemainingNumeric > 0 ? Math.min(SAMSUNG_BILL, samsungRemainingNumeric) : 0;
     const totalUtilities = meralcoNumeric + WIFI_BILL + samsungPaymentDue;
 
-    const dueDate = new Date(2026, 5, 25, 12, 0, 0); // June 25, 2026 (noon to avoid UTC offset shift)
-    const currentMonthKey = getMonthKey(new Date());
-    const isMeralcoPaid = homePaid.meralco === currentMonthKey;
-    const isWifiPaid = homePaid.wifi === currentMonthKey;
-    const isSamsungPaid = homePaid.samsung === currentMonthKey;
+    const dueDate = getNextDueDate(25);
+    const currentHomeCycleKey = getHomeCycleKey(new Date());
+    const isMeralcoPaid = homePaid.meralco === currentHomeCycleKey;
+    const isWifiPaid = homePaid.wifi === currentHomeCycleKey;
+    const isSamsungPaid = homePaid.samsung === currentHomeCycleKey;
     const allUtilitiesPaid = isMeralcoPaid && isWifiPaid && (samsungPaymentDue <= 0 || isSamsungPaid);
 
     // Prepare pie chart data
@@ -1117,9 +1132,14 @@ export default function Dashboard() {
         <div className="border border-black flex flex-col md:flex-row shadow-none">
           <div className="bg-white p-8 sm:p-10 flex-grow border-b md:border-b-0 md:border-r border-black">
             <div className="flex items-start justify-between gap-4 mb-6 pb-2 border-b border-black">
-              <h2 className="text-xl font-extrabold uppercase tracking-tight">
-                Home Utilities & Fixed Costs
-              </h2>
+              <div>
+                <h2 className="text-xl font-extrabold uppercase tracking-tight">
+                  Home Utilities & Fixed Costs
+                </h2>
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mt-1">
+                  Monthly • Resets every 20th • Due every 25th
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={handlePayAllHomeUtilities}
