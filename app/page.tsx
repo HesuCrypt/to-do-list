@@ -84,6 +84,14 @@ type MotoMaintenanceLog = {
   nextServiceKm?: number;
 };
 
+type MotoParkingLog = {
+  id: string;
+  date: string;
+  cost: number;
+  location?: string;
+  notes?: string;
+};
+
 type DayExpensesLastReset = {
   total: number;
   at: string;
@@ -249,6 +257,7 @@ export default function Dashboard() {
   const [motoAccessories, setMotoAccessories] = useState<MotoAccessory[]>([]);
   const [motoFuelLogs, setMotoFuelLogs] = useState<MotoFuelLog[]>([]);
   const [motoMaintenanceLogs, setMotoMaintenanceLogs] = useState<MotoMaintenanceLog[]>([]);
+  const [motoParkingLogs, setMotoParkingLogs] = useState<MotoParkingLog[]>([]);
 
   const [newAccessoryName, setNewAccessoryName] = useState('');
   const [newAccessoryPrice, setNewAccessoryPrice] = useState<number | ''>('');
@@ -266,6 +275,11 @@ export default function Dashboard() {
   const [newMaintenanceOdometerKm, setNewMaintenanceOdometerKm] = useState<number | ''>('');
   const [newMaintenanceRemindDate, setNewMaintenanceRemindDate] = useState('');
   const [newMaintenanceNextServiceKm, setNewMaintenanceNextServiceKm] = useState<number | ''>('');
+
+  const [newParkingDate, setNewParkingDate] = useState('');
+  const [newParkingCost, setNewParkingCost] = useState<number | ''>('');
+  const [newParkingLocation, setNewParkingLocation] = useState('');
+  const [newParkingNotes, setNewParkingNotes] = useState('');
 
   // Utilities State
   const [meralcoBill, setMeralcoBill] = useState<number | ''>('');
@@ -315,6 +329,9 @@ export default function Dashboard() {
 
       const storedMotoMaintenanceLogs = localStorage.getItem('dash_moto_maintenanceLogs');
       if (storedMotoMaintenanceLogs) setMotoMaintenanceLogs(JSON.parse(storedMotoMaintenanceLogs));
+
+      const storedMotoParkingLogs = localStorage.getItem('dash_moto_parkingLogs');
+      if (storedMotoParkingLogs) setMotoParkingLogs(JSON.parse(storedMotoParkingLogs));
 
       const currentHomeCycleKey = getHomeCycleKey(new Date());
       const storedMeralcoBillMonthKey = localStorage.getItem('dash_meralcoBill_monthKey');
@@ -372,6 +389,10 @@ export default function Dashboard() {
   }, [motoMaintenanceLogs, isClient]);
 
   useEffect(() => {
+    if (isClient) localStorage.setItem('dash_moto_parkingLogs', JSON.stringify(motoParkingLogs));
+  }, [motoParkingLogs, isClient]);
+
+  useEffect(() => {
     if (!isClient) return;
     localStorage.setItem('dash_meralcoBill', meralcoBill.toString());
     localStorage.setItem('dash_meralcoBill_monthKey', getHomeCycleKey(new Date()));
@@ -409,6 +430,7 @@ export default function Dashboard() {
     motoAccessories,
     motoFuelLogs,
     motoMaintenanceLogs,
+    motoParkingLogs,
     isClient,
   ]);
 
@@ -619,6 +641,29 @@ export default function Dashboard() {
 
   const handleDeleteMaintenance = (id: string) => {
     setMotoMaintenanceLogs((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  const handleAddParkingLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newParkingDate || newParkingCost === '') return;
+    const newItem: MotoParkingLog = {
+      id: crypto.randomUUID(),
+      date: newParkingDate,
+      cost: Number(newParkingCost),
+      ...(newParkingLocation.trim() ? { location: newParkingLocation.trim() } : {}),
+      ...(newParkingNotes.trim() ? { notes: newParkingNotes.trim() } : {}),
+    };
+    setMotoParkingLogs((prev) =>
+      [newItem, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    );
+    setNewParkingDate('');
+    setNewParkingCost('');
+    setNewParkingLocation('');
+    setNewParkingNotes('');
+  };
+
+  const handleDeleteParkingLog = (id: string) => {
+    setMotoParkingLogs((prev) => prev.filter((x) => x.id !== id));
   };
 
   const advanceBillOneMonth = (bill: Bill): Bill => {
@@ -1578,7 +1623,8 @@ export default function Dashboard() {
     const accessoriesTotal = motoAccessories.reduce((acc, a) => acc + (Number.isFinite(a.price) ? a.price : 0), 0);
     const fuelTotal = motoFuelLogs.reduce((acc, x) => acc + (Number.isFinite(x.cost) ? x.cost : 0), 0);
     const maintenanceTotal = motoMaintenanceLogs.reduce((acc, x) => acc + (Number.isFinite(x.cost) ? x.cost : 0), 0);
-    const totalInvestment = basePriceNumeric + accessoriesTotal + fuelTotal + maintenanceTotal;
+    const parkingTotal = motoParkingLogs.reduce((acc, x) => acc + (Number.isFinite(x.cost) ? x.cost : 0), 0);
+    const totalInvestment = basePriceNumeric + accessoriesTotal + fuelTotal + maintenanceTotal + parkingTotal;
 
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
@@ -1592,12 +1638,13 @@ export default function Dashboard() {
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Total Investment</p>
             <div className="text-4xl sm:text-5xl font-extrabold tracking-tighter mt-2">{formatPHP(totalInvestment)}</div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 w-full lg:w-auto">
             {[
               { label: 'Vehicle', value: basePriceNumeric },
               { label: 'Accessories', value: accessoriesTotal },
               { label: 'Gas & Fuel', value: fuelTotal },
               { label: 'Maintenance', value: maintenanceTotal },
+              { label: 'Parking', value: parkingTotal },
             ].map((c) => (
               <div key={c.label} className="border border-white/20 bg-black p-3 min-w-[140px]">
                 <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">{c.label}</p>
@@ -2079,6 +2126,136 @@ export default function Dashboard() {
                 </form>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="border border-black bg-white">
+          <div className="border-b border-black p-6 py-4 bg-neutral-100 flex items-center justify-between">
+            <h3 className="text-lg font-extrabold uppercase tracking-tight">Parking Costs</h3>
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{formatPHP(parkingTotal)}</span>
+          </div>
+          <div className="p-6 space-y-6">
+            <div className="space-y-3">
+              {motoParkingLogs.length === 0 ? (
+                <div className="text-center text-neutral-400 uppercase text-[10px] font-bold tracking-widest py-8 border border-black/10">
+                  No parking logs added.
+                </div>
+              ) : (
+                <ul className="divide-y divide-black/10 border border-black overflow-hidden">
+                  {motoParkingLogs.map((x) => (
+                    <li key={x.id} className="p-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold truncate">
+                          {formatDate(x.date)}
+                          {x.location ? ` • ${x.location}` : ''}
+                        </p>
+                        {x.notes ? (
+                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 truncate">{x.notes}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <p className="text-sm font-extrabold">{formatPHP(x.cost)}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextDate = prompt('Edit date (YYYY-MM-DD):', x.date);
+                            if (nextDate === null) return;
+                            if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate.trim())) return;
+                            const nextCostInput = prompt('Edit cost (₱):', String(x.cost));
+                            if (nextCostInput === null) return;
+                            const nextCost = Number(nextCostInput);
+                            if (!Number.isFinite(nextCost) || nextCost < 0) return;
+                            const nextLocation = prompt('Edit location (optional):', x.location || '');
+                            if (nextLocation === null) return;
+                            const nextNotes = prompt('Edit notes (optional):', x.notes || '');
+                            if (nextNotes === null) return;
+                            setMotoParkingLogs((prev) =>
+                              prev
+                                .map((y) =>
+                                  y.id === x.id
+                                    ? {
+                                        ...y,
+                                        date: nextDate.trim(),
+                                        cost: nextCost,
+                                        location: nextLocation.trim() || undefined,
+                                        notes: nextNotes.trim() || undefined,
+                                      }
+                                    : y
+                                )
+                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                            );
+                          }}
+                          className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                          aria-label="Edit parking log"
+                          title="Edit parking log"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteParkingLog(x.id)}
+                          className="p-1 opacity-40 hover:opacity-100 transition-opacity"
+                          aria-label="Delete parking log"
+                          title="Delete parking log"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <form onSubmit={handleAddParkingLog} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="sm:col-span-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Date</label>
+                  <input
+                    type="date"
+                    value={newParkingDate}
+                    onChange={(e) => setNewParkingDate(e.target.value)}
+                    className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-xs uppercase font-semibold"
+                    required
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Amount</label>
+                  <input
+                    type="number"
+                    value={newParkingCost}
+                    onChange={(e) => setNewParkingCost(e.target.value !== '' ? Number(e.target.value) : '')}
+                    className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                    placeholder="₱"
+                    min={0}
+                    required
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Location (Optional)</label>
+                  <input
+                    type="text"
+                    value={newParkingLocation}
+                    onChange={(e) => setNewParkingLocation(e.target.value)}
+                    className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                    placeholder="Mall, office..."
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2">Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={newParkingNotes}
+                    onChange={(e) => setNewParkingNotes(e.target.value)}
+                    className="w-full border border-black px-3 py-2 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                    placeholder="Overnight, valet..."
+                  />
+                </div>
+              </div>
+              <button type="submit" className="w-full sm:w-auto bg-black text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2">
+                <Plus size={16} /> Log Parking
+              </button>
+            </form>
           </div>
         </div>
       </div>
