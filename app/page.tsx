@@ -13,7 +13,10 @@ import {
   Plus,
   RotateCcw,
   Sun,
-  Moon
+  Moon,
+  Sparkles,
+  Users,
+  DollarSign
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
@@ -44,6 +47,15 @@ type Bill = {
   amount?: number;
   dueDate: string;
   repeatMonthly?: boolean;
+};
+
+type GoogleAIMember = {
+  id: string;
+  name: string;
+  amount: number;
+  paymentDate: string; // YYYY-MM-DD
+  repeatMonthly: boolean;
+  isPaid: boolean;
 };
 
 type HomePaidState = {
@@ -216,7 +228,15 @@ const getDashSnapshot = (storage: Storage) => {
 
 // --- MAIN COMPONENT ---
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle' | 'google-ai'>('tasks');
+
+  // Google AI Pro State
+  const [googleAIMembers, setGoogleAIMembers] = useState<GoogleAIMember[]>([]);
+  const [googleAIPlanCost, setGoogleAIPlanCost] = useState<number | ''>(1099);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberAmount, setNewMemberAmount] = useState<number | ''>(183.17); // 1099 / 6 = 183.17 default
+  const [newMemberDate, setNewMemberDate] = useState('');
+  const [newMemberRepeat, setNewMemberRepeat] = useState(true);
 
   // Tasks State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -347,6 +367,14 @@ export default function Dashboard() {
       const storedHomePaid = localStorage.getItem('dash_homePaid');
       if (storedHomePaid) setHomePaid(JSON.parse(storedHomePaid));
 
+      const storedGoogleAIMembers = localStorage.getItem('dash_google_ai_members');
+      if (storedGoogleAIMembers) setGoogleAIMembers(JSON.parse(storedGoogleAIMembers));
+
+      const storedGoogleAIPlanCost = localStorage.getItem('dash_google_ai_plan_cost');
+      if (storedGoogleAIPlanCost && storedGoogleAIPlanCost !== '') {
+        setGoogleAIPlanCost(Number(storedGoogleAIPlanCost));
+      }
+
       const storedTheme = localStorage.getItem('dash_theme');
       if (storedTheme === 'dark') setIsDark(true);
     });
@@ -411,6 +439,14 @@ export default function Dashboard() {
   }, [isDark, isClient]);
 
   useEffect(() => {
+    if (isClient) localStorage.setItem('dash_google_ai_members', JSON.stringify(googleAIMembers));
+  }, [googleAIMembers, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_google_ai_plan_cost', String(googleAIPlanCost));
+  }, [googleAIPlanCost, isClient]);
+
+  useEffect(() => {
     if (!isClient) return;
     const nowIso = new Date().toISOString();
     localStorage.setItem('dash_updatedAt', nowIso);
@@ -431,6 +467,8 @@ export default function Dashboard() {
     motoFuelLogs,
     motoMaintenanceLogs,
     motoParkingLogs,
+    googleAIMembers,
+    googleAIPlanCost,
     isClient,
   ]);
 
@@ -673,6 +711,67 @@ export default function Dashboard() {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return { ...bill, id: crypto.randomUUID(), dueDate: `${yyyy}-${mm}-${dd}` };
+  };
+
+  const handleAddGoogleAIMember = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberName.trim() || newMemberAmount === '' || !newMemberDate) return;
+    const newMember: GoogleAIMember = {
+      id: crypto.randomUUID(),
+      name: newMemberName.trim(),
+      amount: Number(newMemberAmount),
+      paymentDate: newMemberDate,
+      repeatMonthly: newMemberRepeat,
+      isPaid: false,
+    };
+    const updatedMembers = [...googleAIMembers, newMember].sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+    setGoogleAIMembers(updatedMembers);
+    setNewMemberName('');
+    setNewMemberDate('');
+  };
+
+  const handleToggleMemberPaid = (id: string) => {
+    setGoogleAIMembers(
+      googleAIMembers.map((m) => (m.id === id ? { ...m, isPaid: !m.isPaid } : m))
+    );
+  };
+
+  const handleDeleteMember = (id: string) => {
+    setGoogleAIMembers(googleAIMembers.filter((m) => m.id !== id));
+  };
+
+  const handleResetGoogleAICollections = () => {
+    if (confirm('Reset collection status for all members?')) {
+      setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false })));
+    }
+  };
+
+  const handleEditMember = (member: GoogleAIMember) => {
+    const nextName = prompt('Edit member name:', member.name);
+    if (nextName === null) return;
+    if (!nextName.trim()) return;
+
+    const nextAmountStr = prompt('Edit monthly payment amount:', String(member.amount));
+    if (nextAmountStr === null) return;
+    const nextAmount = Number(nextAmountStr);
+    if (isNaN(nextAmount) || nextAmount < 0) return;
+
+    const nextDate = prompt('Edit next payment date (YYYY-MM-DD):', member.paymentDate);
+    if (nextDate === null) return;
+    if (!nextDate.trim()) return;
+
+    setGoogleAIMembers((prev) =>
+      prev.map((m) =>
+        m.id === member.id
+          ? {
+              ...m,
+              name: nextName.trim(),
+              amount: nextAmount,
+              paymentDate: nextDate.trim(),
+            }
+          : m
+      ).sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
+    );
   };
 
   // --- RENDERERS ---
@@ -2262,6 +2361,273 @@ export default function Dashboard() {
     );
   };
 
+  const renderGoogleAITab = () => {
+    const totalCollected = googleAIMembers.reduce((acc, m) => acc + m.amount, 0);
+    const planCost = googleAIPlanCost === '' ? 0 : Number(googleAIPlanCost);
+    const netCost = Math.max(0, planCost - totalCollected);
+    
+    const totalCollectedStatus = googleAIMembers.filter(m => m.isPaid).reduce((acc, m) => acc + m.amount, 0);
+    const totalRemainingToCollect = totalCollected - totalCollectedStatus;
+    const equalShare = planCost / 6;
+
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Total Plan Cost</p>
+              <div className="text-2xl font-extrabold">{formatPHP(planCost)}</div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-black/10 flex items-center justify-between">
+              <span className="text-[9px] font-bold uppercase tracking-wider opacity-50">Set Plan Cost (₱):</span>
+              <input
+                type="number"
+                value={googleAIPlanCost}
+                onChange={(e) => setGoogleAIPlanCost(e.target.value !== '' ? Number(e.target.value) : '')}
+                className="w-20 bg-transparent border-b border-black text-right text-xs font-bold focus:outline-none focus:border-black transition-colors"
+                placeholder="1099"
+                min={0}
+              />
+            </div>
+          </div>
+          
+          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">To Collect (Others)</p>
+              <p className="text-2xl font-extrabold">{formatPHP(totalCollected)}</p>
+            </div>
+            <p className="text-[9px] font-bold uppercase tracking-wider opacity-50 mt-4">
+              From {googleAIMembers.length} members
+            </p>
+          </div>
+
+          <div className="border border-black p-6 flex flex-col justify-between bg-black text-white">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">Your Net Share</p>
+              <p className="text-2xl font-extrabold">{formatPHP(netCost)}</p>
+            </div>
+            <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 mt-4">
+              Equal 6-way split is {formatPHP(equalShare)}
+            </p>
+          </div>
+
+          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Collected Status</p>
+              <p className="text-2xl font-extrabold text-neutral-800">
+                {formatPHP(totalCollectedStatus)} <span className="text-xs font-normal opacity-50">/ {formatPHP(totalCollected)}</span>
+              </p>
+            </div>
+            <div className="mt-4">
+              <div className="w-full bg-neutral-200 h-1.5 rounded-none overflow-hidden border border-black">
+                <div 
+                  className="bg-black h-full transition-all duration-500" 
+                  style={{ width: `${totalCollected > 0 ? (totalCollectedStatus / totalCollected) * 100 : 0}%` }}
+                />
+              </div>
+              <div className="flex justify-between items-center mt-1 text-[8px] font-bold uppercase tracking-wider opacity-50">
+                <span>Remaining: {formatPHP(totalRemainingToCollect)}</span>
+                <span>{totalCollected > 0 ? Math.round((totalCollectedStatus / totalCollected) * 100) : 0}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Add Member Form */}
+          <form onSubmit={handleAddGoogleAIMember} className="lg:col-span-1 border border-black p-6 bg-white space-y-4 h-fit">
+            <h2 className="text-lg font-extrabold uppercase tracking-tight border-b border-black pb-2 mb-4">Add Member</h2>
+            
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">Name</label>
+              <input 
+                type="text" 
+                value={newMemberName} 
+                onChange={(e) => setNewMemberName(e.target.value)}
+                placeholder="e.g. John Doe"
+                className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 placeholder-neutral-400 text-sm font-semibold"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">
+                Monthly Amount (₱)
+              </label>
+              <div className="relative">
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0"
+                  value={newMemberAmount} 
+                  onChange={(e) => setNewMemberAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                  placeholder={equalShare.toFixed(2)}
+                  className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewMemberAmount(Number(equalShare.toFixed(2)))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-extrabold uppercase tracking-wider bg-black text-white px-2 py-1 hover:opacity-80 transition-opacity"
+                  title="Use 6-way split default"
+                >
+                  Set Default
+                </button>
+              </div>
+              <p className="text-[9px] opacity-50 mt-1 font-semibold">
+                Equal 6-way share of {formatPHP(planCost)} is {formatPHP(equalShare)}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">Collection Date</label>
+              <input 
+                type="date" 
+                value={newMemberDate} 
+                onChange={(e) => setNewMemberDate(e.target.value)}
+                className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
+                required
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2">
+              <label className="flex items-center space-x-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={newMemberRepeat}
+                  onChange={(e) => setNewMemberRepeat(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <span className="w-5 h-5 border border-black flex items-center justify-center peer-checked:bg-black peer-checked:text-white transition-colors">
+                  {newMemberRepeat && <span className="text-[10px] font-bold">✓</span>}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70 group-hover:opacity-100 transition-opacity">
+                  Repeat Monthly
+                </span>
+              </label>
+            </div>
+
+            <button 
+              type="submit" 
+              className="w-full bg-black text-white px-6 py-3.5 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2 mt-4"
+            >
+              <Plus size={16} /> Add Member
+            </button>
+          </form>
+
+          {/* Members Table */}
+          <div className="lg:col-span-2 border border-black bg-white overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between border-b border-black p-6 py-4 bg-white">
+              <h2 className="text-lg font-extrabold uppercase tracking-tight">Family Members List</h2>
+              <button 
+                type="button"
+                onClick={handleResetGoogleAICollections}
+                className="text-[10px] font-bold uppercase text-black flex items-center hover:underline bg-white px-3 py-1 border border-black"
+              >
+                Reset Collections
+              </button>
+            </div>
+            
+            <div className="overflow-x-auto flex-grow">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-black text-[10px] font-extrabold uppercase tracking-tight bg-white">
+                    <th className="p-4 sm:p-6 w-1/4">Status</th>
+                    <th className="p-4 sm:p-6 w-1/4">Name</th>
+                    <th className="p-4 sm:p-6 w-1/4">Monthly Amt</th>
+                    <th className="p-4 sm:p-6 w-1/4">Due Date</th>
+                    <th className="p-4 sm:p-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm font-semibold">
+                  {googleAIMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-neutral-400 font-sans uppercase text-[10px] font-bold tracking-widest">
+                        No members added yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    googleAIMembers.map((member) => {
+                      const isDue = isDueSoon(member.paymentDate);
+                      return (
+                        <tr key={member.id} className="border-b border-black/10 hover:bg-neutral-50 transition-colors">
+                          <td className="p-4 sm:p-6">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMemberPaid(member.id)}
+                              className="flex items-center gap-2 group"
+                            >
+                              {member.isPaid ? (
+                                <CheckCircle size={18} className="text-black" />
+                              ) : (
+                                <Circle size={18} className="text-neutral-300 group-hover:text-black transition-colors" />
+                              )}
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${member.isPaid ? 'line-through text-neutral-400' : 'text-black'}`}>
+                                {member.isPaid ? 'Collected' : 'Pending'}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="p-4 sm:p-6">
+                            <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
+                              {member.name}
+                            </span>
+                          </td>
+                          <td className="p-4 sm:p-6">
+                            <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
+                              {formatPHP(member.amount)}
+                            </span>
+                            {member.repeatMonthly && (
+                              <span className="ml-1 text-[8px] bg-neutral-200 text-neutral-600 px-1 py-0.5 font-bold uppercase tracking-widest rounded-none">
+                                Monthly
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 sm:p-6">
+                            <div className="flex flex-col">
+                              <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
+                                {formatDate(member.paymentDate)}
+                              </span>
+                              {!member.isPaid && isDue && (
+                                <span className="text-[8px] text-red-600 font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5">
+                                  <AlertCircle size={10} /> Due Soon
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-4 sm:p-6 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditMember(member)}
+                                className="p-1 opacity-50 hover:opacity-100 transition-opacity"
+                                title="Edit Member"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMember(member.id)}
+                                className="p-1 opacity-50 hover:opacity-100 transition-opacity text-red-600"
+                                title="Delete Member"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={`min-h-screen bg-white text-black font-sans selection:bg-black selection:text-white pb-10 flex flex-col transition-[filter] duration-300 ${isDark ? 'invert' : ''}`}>
       {!isClient ? null : (
@@ -2282,6 +2648,7 @@ export default function Dashboard() {
                 { id: 'overtime', label: 'Overtime' },
                 { id: 'finance', label: 'Finance' },
                 { id: 'motorcycle', label: 'Motorcycle' },
+                { id: 'google-ai', label: 'Google AI Pro' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2313,6 +2680,7 @@ export default function Dashboard() {
           {activeTab === 'overtime' && renderOvertimeTab()}
           {activeTab === 'finance' && renderFinanceTab()}
           {activeTab === 'motorcycle' && renderMotorcycleTab()}
+          {activeTab === 'google-ai' && renderGoogleAITab()}
         </main>
 
       </div>
