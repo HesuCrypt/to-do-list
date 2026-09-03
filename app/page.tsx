@@ -265,6 +265,7 @@ export default function Dashboard() {
   const [newBillRepeatMonthly, setNewBillRepeatMonthly] = useState(false);
 
   const [dayExpensesTotal, setDayExpensesTotal] = useState(0);
+  const [monthlyExpensesTotal, setMonthlyExpensesTotal] = useState(0);
   const [dayExpensesAmount, setDayExpensesAmount] = useState<number | ''>('');
   const [dayExpensesLastReset, setDayExpensesLastReset] = useState<DayExpensesLastReset | null>(null);
   const [dayExpensesCopied, setDayExpensesCopied] = useState(false);
@@ -365,6 +366,18 @@ export default function Dashboard() {
       else setSamsungRemaining(SAMSUNG_START_BALANCE);
 
       const storedHomePaid = localStorage.getItem('dash_homePaid');
+      // Monthly reset logic for expenses
+      const currentMonthKey = getMonthKey(new Date());
+      const storedMonthKey = localStorage.getItem('dash_monthKey');
+      const storedMonthlyTotal = localStorage.getItem('dash_monthly_total');
+      if (storedMonthKey !== currentMonthKey) {
+        setMonthlyExpensesTotal(0);
+        localStorage.setItem('dash_monthKey', currentMonthKey);
+        localStorage.setItem('dash_monthly_total', '0');
+      } else if (storedMonthlyTotal) {
+        const n = Number(storedMonthlyTotal);
+        if (Number.isFinite(n)) setMonthlyExpensesTotal(n);
+      }
       if (storedHomePaid) setHomePaid(JSON.parse(storedHomePaid));
 
       const storedGoogleAIMembers = localStorage.getItem('dash_google_ai_members');
@@ -419,6 +432,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_moto_parkingLogs', JSON.stringify(motoParkingLogs));
   }, [motoParkingLogs, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_monthly_total', String(monthlyExpensesTotal));
+  }, [monthlyExpensesTotal, isClient]);
 
   useEffect(() => {
     if (!isClient) return;
@@ -482,22 +499,38 @@ export default function Dashboard() {
   };
 
   const handlePayAllHomeUtilities = () => {
-    const cycleKey = getHomeCycleKey(new Date());
-    const remaining = samsungRemaining === '' ? 0 : Number(samsungRemaining);
-    const shouldPaySamsung = remaining > 0 && homePaid.samsung !== cycleKey;
+  const cycleKey = getHomeCycleKey(new Date());
+  const remaining = samsungRemaining === '' ? 0 : Number(samsungRemaining);
+  const shouldPaySamsung = remaining > 0 && homePaid.samsung !== cycleKey;
 
-    setHomePaid((prev) => ({
-      ...prev,
-      meralco: cycleKey,
-      wifi: cycleKey,
-      ...(remaining > 0 ? { samsung: cycleKey } : {}),
-    }));
+  setHomePaid((prev) => ({
+    ...prev,
+    meralco: cycleKey,
+    wifi: cycleKey,
+    ...(remaining > 0 ? { samsung: cycleKey } : {}),
+  }));
 
-    if (shouldPaySamsung) {
-      const payment = Math.min(SAMSUNG_BILL, remaining);
-      setSamsungRemaining(Math.max(0, remaining - payment));
-    }
-  };
+  if (shouldPaySamsung) {
+    const payment = Math.min(SAMSUNG_BILL, remaining);
+    setSamsungRemaining(Math.max(0, remaining - payment));
+  }
+
+  // Add utilities cost to monthly total
+  const utilitiesPaid = (meralcoBill ? Number(meralcoBill) : 0) + WIFI_BILL + (shouldPaySamsung ? Math.min(SAMSUNG_BILL, remaining) : 0);
+  setMonthlyExpensesTotal((prev) => prev + utilitiesPaid);
+};
+
+
+
+
+
+
+
+
+
+
+
+
 
   // --- HANDLERS ---
   const handleAddTask = (e: React.FormEvent) => {
@@ -583,7 +616,8 @@ export default function Dashboard() {
     if (dayExpensesAmount === '') return;
     const value = Number(dayExpensesAmount);
     if (!Number.isFinite(value) || value <= 0) return;
-    setDayExpensesTotal((prev) => prev + value);
+      setDayExpensesTotal((prev) => prev + value);
+      setMonthlyExpensesTotal((prev) => prev + value);
     setDayExpensesAmount('');
   };
 
@@ -811,7 +845,7 @@ export default function Dashboard() {
     return (
     <div className="space-y-8 animate-in fade-in duration-500">
       {/* Summary Card */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="border border-black p-6 flex flex-col justify-center items-center bg-white text-black">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Active Tasks</p>
           <p className="text-4xl font-extrabold">{activeTasksCount}</p>
@@ -819,6 +853,10 @@ export default function Dashboard() {
         <div className="border border-black p-6 flex flex-col justify-center items-center bg-black text-white">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">Completed Tasks</p>
           <p className="text-4xl font-extrabold">{completedTasksCount}</p>
+        </div>
+        <div className="border border-black p-6 flex flex-col justify-center items-center bg-white text-black">
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Monthly Expenses</p>
+          <p className="text-4xl font-extrabold">{formatPHP(monthlyExpensesTotal)}</p>
         </div>
       </div>
 
@@ -1584,6 +1622,10 @@ export default function Dashboard() {
             <h3 className="text-lg font-extrabold uppercase tracking-tight mb-0 border-b border-black p-6 py-4 flex justify-between items-center bg-neutral-100">
               Upcoming Bills
             </h3>
+          <div className="flex justify-between items-center px-6 py-2 bg-neutral-50 border-t border-b border-black">
+            <span className="font-bold text-sm">Upcoming Bills Total</span>
+            <span className="font-bold text-sm">{formatPHP(bills.reduce((sum, b) => sum + Number(b.amount), 0))}</span>
+          </div>
             
             <div className="overflow-x-auto flex-grow">
               <table className="w-full text-left border-collapse">
