@@ -4,19 +4,23 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle, 
   Circle, 
-  Pencil,
+  Pencil, 
   Trash2, 
   AlertCircle, 
   Wallet, 
   Clock, 
-  CalendarDays,
-  Plus,
-  RotateCcw,
-  Sun,
-  Moon,
-  Sparkles,
-  Users,
-  DollarSign
+  CalendarDays, 
+  Plus, 
+  RotateCcw, 
+  Sun, 
+  Moon, 
+  Sparkles, 
+  Users, 
+  DollarSign,
+  CalendarCheck,
+  CreditCard,
+  X,
+  FastForward
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
@@ -56,6 +60,8 @@ type GoogleAIMember = {
   paymentDate: string; // YYYY-MM-DD
   repeatMonthly: boolean;
   isPaid: boolean;
+  advanceMonths?: number;
+  notes?: string;
 };
 
 type HomePaidState = {
@@ -184,6 +190,92 @@ const getNextDueDate = (dayOfMonth: number) => {
   return new Date(now.getFullYear(), now.getMonth() + 1, dayOfMonth);
 };
 
+const GOOGLE_AI_RESET_DAY = 24;
+
+const getGoogleAICycleKey = (date: Date = new Date()) => {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const cycleDate = d >= GOOGLE_AI_RESET_DAY ? new Date(y, m, 1) : new Date(y, m - 1, 1);
+  return getMonthKey(cycleDate);
+};
+
+const getDefaultGoogleAIDueDate = (date: Date = new Date()) => {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const targetDate = d <= GOOGLE_AI_RESET_DAY
+    ? new Date(y, m, GOOGLE_AI_RESET_DAY)
+    : new Date(y, m + 1, GOOGLE_AI_RESET_DAY);
+  const yyyy = targetDate.getFullYear();
+  const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(targetDate.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const getGoogleAICycleDetails = (date: Date = new Date()) => {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  
+  const cycleStart = d >= GOOGLE_AI_RESET_DAY
+    ? new Date(y, m, GOOGLE_AI_RESET_DAY)
+    : new Date(y, m - 1, GOOGLE_AI_RESET_DAY);
+  
+  const cycleEnd = new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, GOOGLE_AI_RESET_DAY - 1);
+  
+  const nextCycleDate = d >= GOOGLE_AI_RESET_DAY
+    ? new Date(y, m + 1, GOOGLE_AI_RESET_DAY)
+    : new Date(y, m, GOOGLE_AI_RESET_DAY);
+    
+  const isDueToday = d === GOOGLE_AI_RESET_DAY;
+  
+  const now = new Date(y, m, d);
+  const diffMs = nextCycleDate.getTime() - now.getTime();
+  const daysUntilNext = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+  return {
+    cycleKey: getMonthKey(cycleStart),
+    cycleStart,
+    cycleEnd,
+    nextCycleDate,
+    isDueToday,
+    daysUntilNext,
+    formattedCycleStart: cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    formattedCycleEnd: cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    formattedNextCycleDate: nextCycleDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  };
+};
+
+const getMemberCoverageInfo = (member: GoogleAIMember) => {
+  const advance = Math.max(0, member.advanceMonths || 0);
+  let baseDate: Date;
+  if (member.paymentDate && member.paymentDate.length >= 10) {
+    baseDate = new Date(member.paymentDate.slice(0, 10) + 'T00:00:00');
+    if (isNaN(baseDate.getTime())) baseDate = new Date();
+  } else {
+    baseDate = new Date();
+  }
+  
+  const targetDue = new Date(baseDate.getFullYear(), baseDate.getMonth(), GOOGLE_AI_RESET_DAY);
+  if (member.isPaid) {
+    targetDue.setMonth(targetDue.getMonth() + 1 + advance);
+  } else if (advance > 0) {
+    targetDue.setMonth(targetDue.getMonth() + advance);
+  }
+  
+  const coverageEnd = new Date(targetDue.getFullYear(), targetDue.getMonth(), GOOGLE_AI_RESET_DAY - 1);
+  
+  return {
+    nextDueDate: targetDue,
+    coverageEndDate: coverageEnd,
+    formattedNextDue: targetDue.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    formattedCoverageEnd: coverageEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    hasAdvance: advance > 0,
+    advanceMonths: advance,
+  };
+};
+
 const DASH_DB_NAME = 'dash_local_db';
 const DASH_DB_VERSION = 1;
 const DASH_DB_STORE = 'snapshots';
@@ -233,10 +325,15 @@ export default function Dashboard() {
   // Google AI Pro State
   const [googleAIMembers, setGoogleAIMembers] = useState<GoogleAIMember[]>([]);
   const [googleAIPlanCost, setGoogleAIPlanCost] = useState<number | ''>(1099);
+  const [googleAICycleKey, setGoogleAICycleKey] = useState<string>('');
+  const [googleAICycleNotice, setGoogleAICycleNotice] = useState<string | null>(null);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberAmount, setNewMemberAmount] = useState<number | ''>(183.17); // 1099 / 6 = 183.17 default
-  const [newMemberDate, setNewMemberDate] = useState('');
+  const [newMemberDate, setNewMemberDate] = useState(getDefaultGoogleAIDueDate());
+  const [newMemberAdvanceMonths, setNewMemberAdvanceMonths] = useState<number>(0);
   const [newMemberRepeat, setNewMemberRepeat] = useState(true);
+  const [advanceModalMember, setAdvanceModalMember] = useState<GoogleAIMember | null>(null);
+  const [advanceInputMonths, setAdvanceInputMonths] = useState<number>(1);
 
   // Tasks State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -380,8 +477,57 @@ export default function Dashboard() {
       }
       if (storedHomePaid) setHomePaid(JSON.parse(storedHomePaid));
 
+      const currentGoogleAICycleKey = getGoogleAICycleKey(new Date());
+      setGoogleAICycleKey(currentGoogleAICycleKey);
+      const storedGoogleAICycleKey = localStorage.getItem('dash_google_ai_cycleKey');
       const storedGoogleAIMembers = localStorage.getItem('dash_google_ai_members');
-      if (storedGoogleAIMembers) setGoogleAIMembers(JSON.parse(storedGoogleAIMembers));
+      
+      let initialMembers: GoogleAIMember[] = [];
+      if (storedGoogleAIMembers) {
+        try {
+          initialMembers = JSON.parse(storedGoogleAIMembers);
+        } catch {}
+      }
+
+      if (!storedGoogleAICycleKey) {
+        localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
+        setGoogleAIMembers(initialMembers);
+      } else if (storedGoogleAICycleKey !== currentGoogleAICycleKey) {
+        // The 24th has arrived! New cycle rollover.
+        const [sYear, sMonth] = storedGoogleAICycleKey.split('-').map(Number);
+        const [cYear, cMonth] = currentGoogleAICycleKey.split('-').map(Number);
+        const elapsedCycles = Math.max(1, (cYear - sYear) * 12 + (cMonth - sMonth));
+
+        let advancedKeptCount = 0;
+        const updatedMembers = initialMembers.map((m) => {
+          const adv = m.advanceMonths || 0;
+          if (adv >= elapsedCycles) {
+            advancedKeptCount++;
+            return {
+              ...m,
+              advanceMonths: adv - elapsedCycles,
+              isPaid: true,
+              paymentDate: `${currentGoogleAICycleKey}-24`,
+            };
+          } else {
+            return {
+              ...m,
+              advanceMonths: 0,
+              isPaid: false,
+              paymentDate: `${currentGoogleAICycleKey}-24`,
+            };
+          }
+        });
+
+        localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
+        localStorage.setItem('dash_google_ai_members', JSON.stringify(updatedMembers));
+        setGoogleAIMembers(updatedMembers);
+        if (initialMembers.length > 0) {
+          setGoogleAICycleNotice(`Google AI Pro subscription reset for the new cycle (24th). ${advancedKeptCount} member(s) with advance payment remained marked as Collected.`);
+        }
+      } else {
+        setGoogleAIMembers(initialMembers);
+      }
 
       const storedGoogleAIPlanCost = localStorage.getItem('dash_google_ai_plan_cost');
       if (storedGoogleAIPlanCost && storedGoogleAIPlanCost !== '') {
@@ -464,6 +610,10 @@ export default function Dashboard() {
   }, [googleAIPlanCost, isClient]);
 
   useEffect(() => {
+    if (isClient && googleAICycleKey) localStorage.setItem('dash_google_ai_cycleKey', googleAICycleKey);
+  }, [googleAICycleKey, isClient]);
+
+  useEffect(() => {
     if (!isClient) return;
     const nowIso = new Date().toISOString();
     localStorage.setItem('dash_updatedAt', nowIso);
@@ -486,6 +636,7 @@ export default function Dashboard() {
     motoParkingLogs,
     googleAIMembers,
     googleAIPlanCost,
+    googleAICycleKey,
     isClient,
   ]);
 
@@ -750,23 +901,38 @@ export default function Dashboard() {
   const handleAddGoogleAIMember = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMemberName.trim() || newMemberAmount === '' || !newMemberDate) return;
+    const advMonths = Math.max(0, Number(newMemberAdvanceMonths) || 0);
     const newMember: GoogleAIMember = {
       id: crypto.randomUUID(),
       name: newMemberName.trim(),
       amount: Number(newMemberAmount),
       paymentDate: newMemberDate,
       repeatMonthly: newMemberRepeat,
-      isPaid: false,
+      isPaid: advMonths > 0 ? true : false,
+      advanceMonths: advMonths,
     };
     const updatedMembers = [...googleAIMembers, newMember].sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
     setGoogleAIMembers(updatedMembers);
     setNewMemberName('');
-    setNewMemberDate('');
+    setNewMemberDate(getDefaultGoogleAIDueDate());
+    setNewMemberAdvanceMonths(0);
+    if (advMonths > 0) {
+      setGoogleAICycleNotice(`Added ${newMember.name} with ${advMonths} month(s) advance payment.`);
+    }
   };
 
   const handleToggleMemberPaid = (id: string) => {
     setGoogleAIMembers(
-      googleAIMembers.map((m) => (m.id === id ? { ...m, isPaid: !m.isPaid } : m))
+      googleAIMembers.map((m) => {
+        if (m.id !== id) return m;
+        if (m.isPaid && (m.advanceMonths || 0) > 0) {
+          if (!confirm(`${m.name} has ${m.advanceMonths} advance month(s) recorded. Mark as pending and clear their advance payment?`)) {
+            return m;
+          }
+          return { ...m, isPaid: false, advanceMonths: 0 };
+        }
+        return { ...m, isPaid: !m.isPaid };
+      })
     );
   };
 
@@ -775,9 +941,96 @@ export default function Dashboard() {
   };
 
   const handleResetGoogleAICollections = () => {
-    if (confirm('Reset collection status for all members?')) {
-      setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false })));
+    const hasAdvance = googleAIMembers.some((m) => (m.advanceMonths || 0) > 0);
+    if (hasAdvance) {
+      const choice = confirm(
+        'Reset current cycle collections?\n\n[OK] = Reset only regular members (keep members who prepaid in advance)\n[Cancel] = Cancel'
+      );
+      if (!choice) return;
+      setGoogleAIMembers(
+        googleAIMembers.map((m) => {
+          if ((m.advanceMonths || 0) > 0) return m;
+          return { ...m, isPaid: false };
+        })
+      );
+      setGoogleAICycleNotice('Current cycle reset. Members with advance payments were kept paid.');
+    } else {
+      if (confirm('Reset collection status for all members for this cycle?')) {
+        setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false })));
+        setGoogleAICycleNotice('All members marked pending for the current cycle.');
+      }
     }
+  };
+
+  const handleAdvanceGoogleAICycle = () => {
+    const curKey = googleAICycleKey || getGoogleAICycleKey();
+    const [curY, curM] = curKey.split('-').map(Number);
+    const nextDate = new Date(curY, curM, 1);
+    const nextKey = getMonthKey(nextDate);
+
+    if (
+      !confirm(
+        `Advance billing cycle to next month (${nextKey}, 24th)?\n\n• Members with advance payments will have 1 advance month deducted and remain Collected.\n• Members with 0 advance months will reset to Pending.\n• Due dates will update to ${nextKey}-24.`
+      )
+    ) {
+      return;
+    }
+
+    let advancedKeptCount = 0;
+    const rolledMembers = googleAIMembers.map((m) => {
+      const adv = m.advanceMonths || 0;
+      if (adv > 0) {
+        advancedKeptCount++;
+        return {
+          ...m,
+          advanceMonths: adv - 1,
+          isPaid: true,
+          paymentDate: `${nextKey}-24`,
+        };
+      }
+      return {
+        ...m,
+        advanceMonths: 0,
+        isPaid: false,
+        paymentDate: `${nextKey}-24`,
+      };
+    });
+
+    setGoogleAICycleKey(nextKey);
+    setGoogleAIMembers(rolledMembers);
+    setGoogleAICycleNotice(`Advanced cycle to ${nextKey} (24th). ${advancedKeptCount} member(s) with advance payments remained paid.`);
+  };
+
+  const handleMarkAllGoogleAIPaid = () => {
+    if (confirm('Mark all members as collected for this cycle?')) {
+      setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: true })));
+    }
+  };
+
+  const handleSaveAdvancePayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!advanceModalMember) return;
+    const months = Math.max(1, Number(advanceInputMonths) || 1);
+
+    setGoogleAIMembers((prev) =>
+      prev.map((m) => {
+        if (m.id !== advanceModalMember.id) return m;
+        return {
+          ...m,
+          isPaid: true,
+          advanceMonths: months,
+        };
+      })
+    );
+    setGoogleAICycleNotice(`Recorded ${months} month(s) advance payment for ${advanceModalMember.name}.`);
+    setAdvanceModalMember(null);
+  };
+
+  const handleClearAdvancePayment = (id: string) => {
+    setGoogleAIMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, advanceMonths: 0 } : m))
+    );
+    setAdvanceModalMember(null);
   };
 
   const handleEditMember = (member: GoogleAIMember) => {
@@ -794,6 +1047,10 @@ export default function Dashboard() {
     if (nextDate === null) return;
     if (!nextDate.trim()) return;
 
+    const nextAdvanceStr = prompt('Edit advance months (0 for none):', String(member.advanceMonths || 0));
+    if (nextAdvanceStr === null) return;
+    const nextAdvance = Math.max(0, parseInt(nextAdvanceStr, 10) || 0);
+
     setGoogleAIMembers((prev) =>
       prev.map((m) =>
         m.id === member.id
@@ -802,6 +1059,8 @@ export default function Dashboard() {
               name: nextName.trim(),
               amount: nextAmount,
               paymentDate: nextDate.trim(),
+              advanceMonths: nextAdvance,
+              isPaid: nextAdvance > 0 ? true : m.isPaid,
             }
           : m
       ).sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
@@ -2412,17 +2671,88 @@ export default function Dashboard() {
     const totalRemainingToCollect = totalCollected - totalCollectedStatus;
     const equalShare = planCost / 6;
 
+    const advanceReserveTotal = googleAIMembers.reduce((acc, m) => acc + ((m.advanceMonths || 0) * m.amount), 0);
+    const advanceMembersCount = googleAIMembers.filter(m => (m.advanceMonths || 0) > 0).length;
+    const cycleDetails = getGoogleAICycleDetails();
+
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
+        {/* Cycle Information & Quick Actions Bar */}
+        <div className="border border-black p-4 sm:p-5 bg-neutral-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="bg-black text-white text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <CalendarCheck size={14} />
+              <span>Billing Cycle: 24th of Each Month</span>
+            </div>
+            <div className="text-xs font-bold text-neutral-800">
+              <span className="opacity-50 uppercase text-[10px] tracking-wider mr-1.5">Current Cycle:</span>
+              <span>{cycleDetails.formattedCycleStart} — {cycleDetails.formattedCycleEnd}</span>
+            </div>
+            {cycleDetails.isDueToday ? (
+              <span className="bg-black text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-1 border border-black flex items-center gap-1 animate-pulse">
+                <Sparkles size={11} /> Due Today (24th)!
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-white border border-black/30 px-2 py-0.5 text-neutral-600">
+                Next Due: {cycleDetails.formattedNextCycleDate} ({cycleDetails.daysUntilNext} days)
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleMarkAllGoogleAIPaid}
+              className="text-[9px] font-black uppercase tracking-wider bg-white hover:bg-neutral-100 text-black px-3 py-2 border border-black transition-colors"
+              title="Mark all members collected for current cycle"
+            >
+              Mark All Paid
+            </button>
+            <button
+              type="button"
+              onClick={handleResetGoogleAICollections}
+              className="text-[9px] font-black uppercase tracking-wider bg-white hover:bg-neutral-100 text-black px-3 py-2 border border-black transition-colors"
+              title="Reset current cycle status (preserves advance payments)"
+            >
+              Reset Cycle
+            </button>
+            <button
+              type="button"
+              onClick={handleAdvanceGoogleAICycle}
+              className="text-[9px] font-black uppercase tracking-wider bg-black hover:opacity-80 text-white px-3 py-2 border border-black flex items-center gap-1.5 transition-opacity"
+              title="Rollover to next monthly cycle (applies advance payments)"
+            >
+              <FastForward size={12} /> Advance to Next Cycle
+            </button>
+          </div>
+        </div>
+
+        {/* Cycle Notice Toast/Banner */}
+        {googleAICycleNotice && (
+          <div className="border border-black bg-neutral-100 p-3.5 text-xs font-bold flex items-center justify-between shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-black shrink-0" />
+              <span>{googleAICycleNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGoogleAICycleNotice(null)}
+              className="text-[10px] hover:underline font-black uppercase tracking-wider ml-4"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="border border-black p-5 flex flex-col justify-between bg-white text-black">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Total Plan Cost</p>
               <div className="text-2xl font-extrabold">{formatPHP(planCost)}</div>
             </div>
-            <div className="mt-4 pt-4 border-t border-black/10 flex items-center justify-between">
-              <span className="text-[9px] font-bold uppercase tracking-wider opacity-50">Set Plan Cost (₱):</span>
+            <div className="mt-4 pt-3 border-t border-black/10 flex items-center justify-between">
+              <span className="text-[9px] font-bold uppercase tracking-wider opacity-50">Set Plan (₱):</span>
               <input
                 type="number"
                 value={googleAIPlanCost}
@@ -2434,7 +2764,7 @@ export default function Dashboard() {
             </div>
           </div>
           
-          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+          <div className="border border-black p-5 flex flex-col justify-between bg-white text-black">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">To Collect (Others)</p>
               <p className="text-2xl font-extrabold">{formatPHP(totalCollected)}</p>
@@ -2444,7 +2774,7 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="border border-black p-6 flex flex-col justify-between bg-black text-white">
+          <div className="border border-black p-5 flex flex-col justify-between bg-black text-white">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">Your Net Share</p>
               <p className="text-2xl font-extrabold">{formatPHP(netCost)}</p>
@@ -2454,9 +2784,9 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="border border-black p-6 flex flex-col justify-between bg-white text-black">
+          <div className="border border-black p-5 flex flex-col justify-between bg-white text-black">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Collected Status</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Collected This Cycle</p>
               <p className="text-2xl font-extrabold text-neutral-800">
                 {formatPHP(totalCollectedStatus)} <span className="text-xs font-normal opacity-50">/ {formatPHP(totalCollected)}</span>
               </p>
@@ -2472,6 +2802,19 @@ export default function Dashboard() {
                 <span>Remaining: {formatPHP(totalRemainingToCollect)}</span>
                 <span>{totalCollected > 0 ? Math.round((totalCollectedStatus / totalCollected) * 100) : 0}%</span>
               </div>
+            </div>
+          </div>
+
+          <div className="border border-black p-5 flex flex-col justify-between bg-white text-black">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Advance Reserve Funds</p>
+              <p className="text-2xl font-extrabold">{formatPHP(advanceReserveTotal)}</p>
+            </div>
+            <div className="mt-4 flex items-center justify-between text-[9px] font-bold uppercase tracking-wider opacity-70">
+              <span>{advanceMembersCount} member(s) prepaid ahead</span>
+              {advanceMembersCount > 0 && (
+                <span className="bg-black text-white px-1.5 py-0.5 text-[8px] font-extrabold">Active</span>
+              )}
             </div>
           </div>
         </div>
@@ -2523,7 +2866,9 @@ export default function Dashboard() {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">Collection Date</label>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">
+                Collection Date (24th of the Month)
+              </label>
               <input 
                 type="date" 
                 value={newMemberDate} 
@@ -2531,6 +2876,29 @@ export default function Dashboard() {
                 className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
                 required
               />
+              <p className="text-[9px] opacity-50 mt-1 font-semibold">
+                Subscriptions reset every 24th of the month.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">
+                Advance Months Paid (Optional)
+              </label>
+              <input 
+                type="number" 
+                min="0"
+                max="24"
+                value={newMemberAdvanceMonths} 
+                onChange={(e) => setNewMemberAdvanceMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 text-sm font-semibold"
+                placeholder="0"
+              />
+              {newMemberAdvanceMonths > 0 && typeof newMemberAmount === 'number' && (
+                <p className="text-[9px] text-emerald-800 font-bold mt-1.5 bg-neutral-100 p-2 border border-black/20">
+                  ✨ Prepaying {newMemberAdvanceMonths} month(s) ahead (+{formatPHP(newMemberAdvanceMonths * newMemberAmount)}). Member will be marked as Collected.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center space-x-2 pt-2">
@@ -2545,14 +2913,14 @@ export default function Dashboard() {
                   {newMemberRepeat && <span className="text-[10px] font-bold">✓</span>}
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider opacity-70 group-hover:opacity-100 transition-opacity">
-                  Repeat Monthly
+                  Repeat Monthly (Every 24th)
                 </span>
               </label>
             </div>
 
             <button 
               type="submit" 
-              className="w-full bg-black text-white px-6 py-3.5 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2 mt-4"
+              className="w-full bg-black text-white px-6 py-3.5 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center gap-2 mt-4 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             >
               <Plus size={16} /> Add Member
             </button>
@@ -2560,89 +2928,139 @@ export default function Dashboard() {
 
           {/* Members Table */}
           <div className="lg:col-span-2 border border-black bg-white overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between border-b border-black p-6 py-4 bg-white">
+            <div className="flex items-center justify-between border-b border-black p-6 py-4 bg-white flex-wrap gap-2">
               <h2 className="text-lg font-extrabold uppercase tracking-tight">Family Members List</h2>
-              <button 
-                type="button"
-                onClick={handleResetGoogleAICollections}
-                className="text-[10px] font-bold uppercase text-black flex items-center hover:underline bg-white px-3 py-1 border border-black"
-              >
-                Reset Collections
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={handleResetGoogleAICollections}
+                  className="text-[10px] font-bold uppercase text-black flex items-center hover:bg-neutral-100 bg-white px-3 py-1.5 border border-black transition-colors"
+                >
+                  Reset Collections
+                </button>
+              </div>
             </div>
             
             <div className="overflow-x-auto flex-grow">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b-2 border-black text-[10px] font-extrabold uppercase tracking-tight bg-white">
-                    <th className="p-4 sm:p-6 w-1/4">Status</th>
-                    <th className="p-4 sm:p-6 w-1/4">Name</th>
-                    <th className="p-4 sm:p-6 w-1/4">Monthly Amt</th>
-                    <th className="p-4 sm:p-6 w-1/4">Due Date</th>
-                    <th className="p-4 sm:p-6 text-right">Actions</th>
+                    <th className="p-4 sm:p-5 w-1/5">Status</th>
+                    <th className="p-4 sm:p-5 w-1/4">Name</th>
+                    <th className="p-4 sm:p-5 w-1/5">Monthly Amt</th>
+                    <th className="p-4 sm:p-5 w-1/4">Due Date</th>
+                    <th className="p-4 sm:p-5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm font-semibold">
                   {googleAIMembers.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-12 text-center text-neutral-400 font-sans uppercase text-[10px] font-bold tracking-widest">
-                        No members added yet.
+                        No members added yet. Add your 5 shared members to track 24th payments!
                       </td>
                     </tr>
                   ) : (
                     googleAIMembers.map((member) => {
                       const isDue = isDueSoon(member.paymentDate);
+                      const cov = getMemberCoverageInfo(member);
+                      const hasAdvance = (member.advanceMonths || 0) > 0;
+
                       return (
                         <tr key={member.id} className="border-b border-black/10 hover:bg-neutral-50 transition-colors">
-                          <td className="p-4 sm:p-6">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleMemberPaid(member.id)}
-                              className="flex items-center gap-2 group"
-                            >
-                              {member.isPaid ? (
-                                <CheckCircle size={18} className="text-black" />
-                              ) : (
-                                <Circle size={18} className="text-neutral-300 group-hover:text-black transition-colors" />
+                          <td className="p-4 sm:p-5">
+                            <div className="flex flex-col gap-1 items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMemberPaid(member.id)}
+                                className="flex items-center gap-2 group text-left"
+                              >
+                                {member.isPaid ? (
+                                  <CheckCircle size={18} className="text-black" />
+                                ) : (
+                                  <Circle size={18} className="text-neutral-300 group-hover:text-black transition-colors" />
+                                )}
+                                <span className={`text-[10px] font-bold uppercase tracking-wider ${member.isPaid ? 'line-through text-neutral-400' : 'text-black'}`}>
+                                  {member.isPaid ? 'Collected' : 'Pending'}
+                                </span>
+                              </button>
+                              {member.isPaid && hasAdvance && (
+                                <span className="text-[8px] font-black uppercase tracking-wider bg-black text-white px-1.5 py-0.5 border border-black flex items-center gap-1">
+                                  <Sparkles size={9} /> +{member.advanceMonths} mo advance
+                                </span>
                               )}
-                              <span className={`text-[10px] font-bold uppercase tracking-wider ${member.isPaid ? 'line-through text-neutral-400' : 'text-black'}`}>
-                                {member.isPaid ? 'Collected' : 'Pending'}
-                              </span>
-                            </button>
+                            </div>
                           </td>
-                          <td className="p-4 sm:p-6">
+                          <td className="p-4 sm:p-5">
                             <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
                               {member.name}
                             </span>
+                            {hasAdvance && (
+                              <span className="text-[9px] text-neutral-500 font-bold block mt-0.5">
+                                Covered through {cov.formattedCoverageEnd}
+                              </span>
+                            )}
                           </td>
-                          <td className="p-4 sm:p-6">
+                          <td className="p-4 sm:p-5">
                             <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
                               {formatPHP(member.amount)}
                             </span>
                             {member.repeatMonthly && (
                               <span className="ml-1 text-[8px] bg-neutral-200 text-neutral-600 px-1 py-0.5 font-bold uppercase tracking-widest rounded-none">
-                                Monthly
+                                24th
+                              </span>
+                            )}
+                            {hasAdvance && (
+                              <span className="text-[9px] text-neutral-600 block mt-0.5 font-bold">
+                                Reserve: +{formatPHP((member.advanceMonths || 0) * member.amount)}
                               </span>
                             )}
                           </td>
-                          <td className="p-4 sm:p-6">
+                          <td className="p-4 sm:p-5">
                             <div className="flex flex-col">
-                              <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
-                                {formatDate(member.paymentDate)}
-                              </span>
-                              {!member.isPaid && isDue && (
-                                <span className="text-[8px] text-red-600 font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5">
-                                  <AlertCircle size={10} /> Due Soon
-                                </span>
+                              {hasAdvance ? (
+                                <>
+                                  <span className="text-xs font-bold text-black">
+                                    Next: {cov.formattedNextDue}
+                                  </span>
+                                  <span className="text-[8px] bg-neutral-100 text-black font-extrabold uppercase px-1.5 py-0.5 border border-black/20 mt-1 inline-flex items-center gap-1 w-fit">
+                                    <Sparkles size={9} /> Paid {member.advanceMonths} mo ahead
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
+                                    {formatDate(member.paymentDate)}
+                                  </span>
+                                  {cycleDetails.isDueToday && !member.isPaid ? (
+                                    <span className="text-[8px] text-red-600 font-black uppercase tracking-wider flex items-center gap-1 mt-0.5">
+                                      <AlertCircle size={10} /> Due Today (24th)!
+                                    </span>
+                                  ) : isDue && !member.isPaid ? (
+                                    <span className="text-[8px] text-red-600 font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5">
+                                      <AlertCircle size={10} /> Due Soon
+                                    </span>
+                                  ) : null}
+                                </>
                               )}
                             </div>
                           </td>
-                          <td className="p-4 sm:p-6 text-right">
-                            <div className="flex items-center justify-end gap-2">
+                          <td className="p-4 sm:p-5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAdvanceModalMember(member);
+                                  setAdvanceInputMonths(member.advanceMonths && member.advanceMonths > 0 ? member.advanceMonths : 1);
+                                }}
+                                className="px-2 py-1 bg-black text-white hover:opacity-80 text-[9px] font-black uppercase tracking-wider transition-opacity flex items-center gap-1 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                                title="Record or manage advance payment"
+                              >
+                                <CreditCard size={11} /> Advance
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleEditMember(member)}
-                                className="p-1 opacity-50 hover:opacity-100 transition-opacity"
+                                className="p-1 opacity-60 hover:opacity-100 transition-opacity border border-transparent hover:border-black"
                                 title="Edit Member"
                               >
                                 <Pencil size={14} />
@@ -2650,7 +3068,7 @@ export default function Dashboard() {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteMember(member.id)}
-                                className="p-1 opacity-50 hover:opacity-100 transition-opacity text-red-600"
+                                className="p-1 opacity-60 hover:opacity-100 transition-opacity text-red-600 border border-transparent hover:border-red-600"
                                 title="Delete Member"
                               >
                                 <Trash2 size={14} />
@@ -2666,6 +3084,140 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Advance Payment Modal */}
+        {advanceModalMember && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white border-2 border-black max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+              <div className="flex items-start justify-between border-b-2 border-black pb-4">
+                <div>
+                  <span className="text-[9px] font-extrabold uppercase tracking-widest text-neutral-500">Google AI Pro • Advance Payment</span>
+                  <h3 className="text-xl font-black uppercase tracking-tight mt-0.5">{advanceModalMember.name}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdvanceModalMember(null)}
+                  className="p-1.5 hover:bg-neutral-100 border border-black transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="bg-neutral-50 border border-black p-4 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-60 uppercase text-[10px] tracking-wider">Monthly Share:</span>
+                  <span className="font-extrabold text-sm">{formatPHP(advanceModalMember.amount)} / month</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-60 uppercase text-[10px] tracking-wider">Current Cycle Status:</span>
+                  <span className={`font-extrabold text-[10px] uppercase tracking-wider px-2 py-0.5 ${advanceModalMember.isPaid ? 'bg-black text-white' : 'bg-neutral-200 text-neutral-700'}`}>
+                    {advanceModalMember.isPaid ? 'Collected' : 'Pending'}
+                  </span>
+                </div>
+                {advanceModalMember.advanceMonths && advanceModalMember.advanceMonths > 0 ? (
+                  <div className="flex justify-between items-center text-emerald-800 font-bold pt-1 border-t border-black/10">
+                    <span className="uppercase text-[10px] tracking-wider">Currently Recorded Advance:</span>
+                    <span>+{advanceModalMember.advanceMonths} month(s) prepaid ahead</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <form onSubmit={handleSaveAdvancePayment} className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">
+                    Select Advance Period (Months Ahead)
+                  </label>
+                  <div className="grid grid-cols-5 gap-2 mb-3">
+                    {[1, 2, 3, 6, 12].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setAdvanceInputMonths(num)}
+                        className={`py-2 text-xs font-black border border-black uppercase transition-all ${
+                          advanceInputMonths === num
+                            ? 'bg-black text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                            : 'bg-white text-black hover:bg-neutral-100'
+                        }`}
+                      >
+                        +{num} mo
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Custom months:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={36}
+                      value={advanceInputMonths}
+                      onChange={(e) => setAdvanceInputMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-24 border border-black px-3 py-1.5 text-sm font-bold text-center focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Calculation summary card */}
+                {(() => {
+                  const totalAdvAmount = advanceInputMonths * advanceModalMember.amount;
+                  const cov = getMemberCoverageInfo({
+                    ...advanceModalMember,
+                    isPaid: true,
+                    advanceMonths: advanceInputMonths,
+                  });
+                  return (
+                    <div className="border border-black p-4 bg-white space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="opacity-70 font-semibold">Advance Payment Amount:</span>
+                        <span className="text-base font-black">{formatPHP(totalAdvAmount)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs border-t border-black/10 pt-2">
+                        <span className="opacity-70 font-semibold">Will be covered until:</span>
+                        <span className="font-extrabold text-black">{cov.formattedCoverageEnd}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="opacity-70 font-semibold">Next Payment Due:</span>
+                        <span className="font-extrabold text-black">{cov.formattedNextDue} (24th)</span>
+                      </div>
+                      <p className="text-[10px] text-neutral-600 font-semibold mt-2 pt-2 border-t border-black/10 leading-tight">
+                        ℹ️ When the 24th arrives each month, this member will automatically remain marked as <strong className="text-black">Collected</strong> for the next {advanceInputMonths} monthly cycle reset(s).
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  {advanceModalMember.advanceMonths && advanceModalMember.advanceMonths > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => handleClearAdvancePayment(advanceModalMember.id)}
+                      className="border border-red-600 text-red-600 hover:bg-red-50 text-[10px] font-bold uppercase tracking-wider px-4 py-3 transition-colors"
+                    >
+                      Clear Advance
+                    </button>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdvanceModalMember(null)}
+                      className="border border-black text-black hover:bg-neutral-100 text-[10px] font-bold uppercase tracking-wider px-4 py-3 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="bg-black text-white hover:opacity-80 text-[10px] font-extrabold uppercase tracking-widest px-6 py-3 border border-black transition-opacity shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                    >
+                      Save Advance
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
