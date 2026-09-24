@@ -53,6 +53,15 @@ type Bill = {
   repeatMonthly?: boolean;
 };
 
+type GoogleAIPaymentRecord = {
+  id: string;
+  date: string;
+  amount: number;
+  cycleKey: string;
+  type: 'regular' | 'advance';
+  note?: string;
+};
+
 type GoogleAIMember = {
   id: string;
   name: string;
@@ -61,6 +70,10 @@ type GoogleAIMember = {
   repeatMonthly: boolean;
   isPaid: boolean;
   advanceMonths?: number;
+  lastPaymentDate?: string;
+  lastPaidCycle?: string;
+  lastPaidAmount?: number;
+  paymentHistory?: GoogleAIPaymentRecord[];
   notes?: string;
 };
 
@@ -334,6 +347,7 @@ export default function Dashboard() {
   const [newMemberRepeat, setNewMemberRepeat] = useState(true);
   const [advanceModalMember, setAdvanceModalMember] = useState<GoogleAIMember | null>(null);
   const [advanceInputMonths, setAdvanceInputMonths] = useState<number>(1);
+  const [historyModalMember, setHistoryModalMember] = useState<GoogleAIMember | null>(null);
 
   // Tasks State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -506,12 +520,33 @@ export default function Dashboard() {
           }
 
           const adv = m.advanceMonths || 0;
+          const hadPaidPast = m.isPaid || Boolean(m.lastPaymentDate);
+          const pastDate = m.lastPaymentDate || m.paymentDate || '2026-08-24';
+          const pastCycle = m.lastPaidCycle || (m.paymentDate ? m.paymentDate.slice(0, 7) : '2026-08');
+          const pastAmount = m.lastPaidAmount || m.amount;
+
+          let updatedHistory: GoogleAIPaymentRecord[] = m.paymentHistory ? [...m.paymentHistory] : [];
+          if (hadPaidPast && !updatedHistory.some((h) => h.cycleKey === pastCycle)) {
+            updatedHistory.push({
+              id: crypto.randomUUID(),
+              date: pastDate,
+              amount: pastAmount,
+              cycleKey: pastCycle,
+              type: 'regular',
+              note: `August cycle payment recorded`,
+            });
+          }
+
           if (adv >= elapsedMonths) {
             return {
               ...m,
               advanceMonths: adv - elapsedMonths,
               isPaid: true,
               paymentDate: currentGoogleAICycleDate,
+              lastPaymentDate: pastDate,
+              lastPaidCycle: pastCycle,
+              lastPaidAmount: pastAmount,
+              paymentHistory: updatedHistory,
             };
           } else {
             return {
@@ -519,6 +554,10 @@ export default function Dashboard() {
               advanceMonths: 0,
               isPaid: false,
               paymentDate: currentGoogleAICycleDate,
+              lastPaymentDate: hadPaidPast ? pastDate : m.lastPaymentDate,
+              lastPaidCycle: hadPaidPast ? pastCycle : m.lastPaidCycle,
+              lastPaidAmount: hadPaidPast ? pastAmount : m.lastPaidAmount,
+              paymentHistory: updatedHistory,
             };
           }
         }
@@ -528,7 +567,7 @@ export default function Dashboard() {
       localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
       if (migratedFromPast) {
         localStorage.setItem('dash_google_ai_members', JSON.stringify(synchronizedMembers));
-        setGoogleAICycleNotice(`Active cycle is September 24. Member records were rolled over from August.`);
+        setGoogleAICycleNotice(`Active cycle is September 24. Past payments from August have been saved to payment history.`);
       }
       setGoogleAIMembers(synchronizedMembers);
 
@@ -934,7 +973,34 @@ export default function Dashboard() {
           }
           return { ...m, isPaid: false, advanceMonths: 0 };
         }
-        return { ...m, isPaid: !m.isPaid };
+        const nextPaid = !m.isPaid;
+        const curCycleKey = googleAICycleKey || getGoogleAICycleKey();
+        const todayStr = new Date().toISOString().slice(0, 10);
+
+        let newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+        if (nextPaid) {
+          newHistory.unshift({
+            id: crypto.randomUUID(),
+            date: todayStr,
+            amount: m.amount,
+            cycleKey: curCycleKey,
+            type: 'regular',
+            note: `Payment recorded for ${curCycleKey} cycle`,
+          });
+        }
+
+        return {
+          ...m,
+          isPaid: nextPaid,
+          ...(nextPaid
+            ? {
+                lastPaymentDate: todayStr,
+                lastPaidCycle: curCycleKey,
+                lastPaidAmount: m.amount,
+                paymentHistory: newHistory,
+              }
+            : {})
+        };
       })
     );
   };
@@ -946,6 +1012,7 @@ export default function Dashboard() {
   const handleResetGoogleAICollections = () => {
     const curKey = googleAICycleKey || getGoogleAICycleKey();
     const currentDueDate = `${curKey}-24`;
+    const todayStr = new Date().toISOString().slice(0, 10);
     const hasAdvance = googleAIMembers.some((m) => (m.advanceMonths || 0) > 0);
     if (hasAdvance) {
       const choice = confirm(
@@ -955,14 +1022,58 @@ export default function Dashboard() {
       setGoogleAIMembers(
         googleAIMembers.map((m) => {
           if ((m.advanceMonths || 0) > 0) return { ...m, paymentDate: currentDueDate };
-          return { ...m, isPaid: false, paymentDate: currentDueDate };
+          const wasPaid = m.isPaid;
+          let newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+          if (wasPaid && !newHistory.some((h) => h.cycleKey === curKey)) {
+            newHistory.unshift({
+              id: crypto.randomUUID(),
+              date: m.lastPaymentDate || todayStr,
+              amount: m.amount,
+              cycleKey: curKey,
+              type: 'regular',
+              note: `Payment recorded for ${curKey} cycle`,
+            });
+          }
+          return {
+            ...m,
+            isPaid: false,
+            paymentDate: currentDueDate,
+            lastPaymentDate: wasPaid ? (m.lastPaymentDate || todayStr) : m.lastPaymentDate,
+            lastPaidCycle: wasPaid ? curKey : m.lastPaidCycle,
+            lastPaidAmount: wasPaid ? m.amount : m.lastPaidAmount,
+            paymentHistory: newHistory,
+          };
         })
       );
-      setGoogleAICycleNotice(`Current cycle reset to ${currentDueDate}. Members with advance payments were kept paid.`);
+      setGoogleAICycleNotice(`Current cycle reset to ${currentDueDate}. Past payments have been preserved in history.`);
     } else {
       if (confirm(`Reset collection status for all members to ${currentDueDate}?`)) {
-        setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false, paymentDate: currentDueDate })));
-        setGoogleAICycleNotice(`All members marked pending for ${currentDueDate}.`);
+        setGoogleAIMembers(
+          googleAIMembers.map((m) => {
+            const wasPaid = m.isPaid;
+            let newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+            if (wasPaid && !newHistory.some((h) => h.cycleKey === curKey)) {
+              newHistory.unshift({
+                id: crypto.randomUUID(),
+                date: m.lastPaymentDate || todayStr,
+                amount: m.amount,
+                cycleKey: curKey,
+                type: 'regular',
+                note: `Payment recorded for ${curKey} cycle`,
+              });
+            }
+            return {
+              ...m,
+              isPaid: false,
+              paymentDate: currentDueDate,
+              lastPaymentDate: wasPaid ? (m.lastPaymentDate || todayStr) : m.lastPaymentDate,
+              lastPaidCycle: wasPaid ? curKey : m.lastPaidCycle,
+              lastPaidAmount: wasPaid ? m.amount : m.lastPaidAmount,
+              paymentHistory: newHistory,
+            };
+          })
+        );
+        setGoogleAICycleNotice(`All members marked pending for ${currentDueDate}. Past payments preserved in history.`);
       }
     }
   };
@@ -1001,6 +1112,19 @@ export default function Dashboard() {
     let advancedKeptCount = 0;
     const rolledMembers = googleAIMembers.map((m) => {
       const adv = m.advanceMonths || 0;
+      const wasPaid = m.isPaid;
+      let newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+      if (wasPaid && !newHistory.some((h) => h.cycleKey === curKey)) {
+        newHistory.unshift({
+          id: crypto.randomUUID(),
+          date: m.lastPaymentDate || `${curKey}-24`,
+          amount: m.amount,
+          cycleKey: curKey,
+          type: 'regular',
+          note: `Payment recorded for ${curKey} cycle`,
+        });
+      }
+
       if (adv > 0) {
         advancedKeptCount++;
         return {
@@ -1008,6 +1132,10 @@ export default function Dashboard() {
           advanceMonths: adv - 1,
           isPaid: true,
           paymentDate: `${nextKey}-24`,
+          lastPaymentDate: m.lastPaymentDate || `${curKey}-24`,
+          lastPaidCycle: curKey,
+          lastPaidAmount: m.amount,
+          paymentHistory: newHistory,
         };
       }
       return {
@@ -1015,6 +1143,10 @@ export default function Dashboard() {
         advanceMonths: 0,
         isPaid: false,
         paymentDate: `${nextKey}-24`,
+        lastPaymentDate: wasPaid ? (m.lastPaymentDate || `${curKey}-24`) : m.lastPaymentDate,
+        lastPaidCycle: wasPaid ? curKey : m.lastPaidCycle,
+        lastPaidAmount: wasPaid ? m.amount : m.lastPaidAmount,
+        paymentHistory: newHistory,
       };
     });
 
@@ -1025,7 +1157,31 @@ export default function Dashboard() {
 
   const handleMarkAllGoogleAIPaid = () => {
     if (confirm('Mark all members as collected for this cycle?')) {
-      setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: true })));
+      const curCycleKey = googleAICycleKey || getGoogleAICycleKey();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      setGoogleAIMembers(
+        googleAIMembers.map((m) => {
+          let newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+          if (!newHistory.some((h) => h.cycleKey === curCycleKey)) {
+            newHistory.unshift({
+              id: crypto.randomUUID(),
+              date: todayStr,
+              amount: m.amount,
+              cycleKey: curCycleKey,
+              type: 'regular',
+              note: `Marked collected for ${curCycleKey}`,
+            });
+          }
+          return {
+            ...m,
+            isPaid: true,
+            lastPaymentDate: todayStr,
+            lastPaidCycle: curCycleKey,
+            lastPaidAmount: m.amount,
+            paymentHistory: newHistory,
+          };
+        })
+      );
     }
   };
 
@@ -1033,14 +1189,31 @@ export default function Dashboard() {
     e.preventDefault();
     if (!advanceModalMember) return;
     const months = Math.max(1, Number(advanceInputMonths) || 1);
+    const curCycleKey = googleAICycleKey || getGoogleAICycleKey();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const advAmount = months * advanceModalMember.amount;
 
     setGoogleAIMembers((prev) =>
       prev.map((m) => {
         if (m.id !== advanceModalMember.id) return m;
+        const newHistory = m.paymentHistory ? [...m.paymentHistory] : [];
+        newHistory.unshift({
+          id: crypto.randomUUID(),
+          date: todayStr,
+          amount: advAmount,
+          cycleKey: curCycleKey,
+          type: 'advance',
+          note: `Prepaid ${months} month(s) ahead`,
+        });
+
         return {
           ...m,
           isPaid: true,
           advanceMonths: months,
+          lastPaymentDate: todayStr,
+          lastPaidCycle: curCycleKey,
+          lastPaidAmount: advAmount,
+          paymentHistory: newHistory,
         };
       })
     );
@@ -3029,6 +3202,12 @@ export default function Dashboard() {
                                 Covered through {cov.formattedCoverageEnd}
                               </span>
                             )}
+                            {member.lastPaymentDate && (
+                              <span className="text-[9px] text-neutral-500 font-semibold flex items-center gap-1 mt-0.5">
+                                <CheckCircle size={10} className="text-emerald-700 shrink-0" />
+                                <span>Last paid: <strong>{formatDate(member.lastPaymentDate)}</strong> ({formatPHP(member.lastPaidAmount || member.amount)})</span>
+                              </span>
+                            )}
                           </td>
                           <td className="p-4 sm:p-5">
                             <span className={member.isPaid ? 'line-through text-neutral-400' : ''}>
@@ -3076,6 +3255,14 @@ export default function Dashboard() {
                           </td>
                           <td className="p-4 sm:p-5 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalMember(member)}
+                                className="px-2 py-1 bg-white hover:bg-neutral-100 text-black text-[9px] font-black uppercase tracking-wider transition-colors flex items-center gap-1 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                                title="View member payment history"
+                              >
+                                <Clock size={11} /> History
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -3245,6 +3432,87 @@ export default function Dashboard() {
                   </div>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Member Payment History Modal */}
+        {historyModalMember && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white border-2 border-black max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] max-h-[90vh] flex flex-col">
+              <div className="flex items-start justify-between border-b-2 border-black pb-4">
+                <div>
+                  <span className="text-[9px] font-extrabold uppercase tracking-widest text-neutral-500">Google AI Pro • Payment History</span>
+                  <h3 className="text-xl font-black uppercase tracking-tight mt-0.5">{historyModalMember.name}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalMember(null)}
+                  className="p-1.5 hover:bg-neutral-100 border border-black transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="bg-neutral-50 border border-black p-4 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-60 uppercase text-[10px] tracking-wider">Monthly Share:</span>
+                  <span className="font-extrabold text-sm">{formatPHP(historyModalMember.amount)} / month</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-60 uppercase text-[10px] tracking-wider">Current Cycle Status:</span>
+                  <span className={`font-extrabold text-[10px] uppercase tracking-wider px-2 py-0.5 ${historyModalMember.isPaid ? 'bg-black text-white' : 'bg-neutral-200 text-neutral-700'}`}>
+                    {historyModalMember.isPaid ? 'Collected for Current Cycle' : 'Pending for Current Cycle'}
+                  </span>
+                </div>
+                {historyModalMember.lastPaymentDate && (
+                  <div className="flex justify-between items-center text-black font-bold pt-1 border-t border-black/10">
+                    <span className="uppercase text-[10px] tracking-wider opacity-60">Last Recorded Payment:</span>
+                    <span>{formatDate(historyModalMember.lastPaymentDate)} ({formatPHP(historyModalMember.lastPaidAmount || historyModalMember.amount)})</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-grow overflow-y-auto space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-600 border-b border-black pb-1">
+                  Recorded Payment Log
+                </h4>
+                {(!historyModalMember.paymentHistory || historyModalMember.paymentHistory.length === 0) ? (
+                  <p className="text-xs text-neutral-400 italic py-4 text-center">
+                    No individual historical payments recorded yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {historyModalMember.paymentHistory.map((rec) => (
+                      <div key={rec.id} className="border border-black p-3 bg-white flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-black">{formatPHP(rec.amount)}</div>
+                          <div className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5">
+                            Cycle: {rec.cycleKey} • Date: {formatDate(rec.date)}
+                          </div>
+                          {rec.note && (
+                            <div className="text-[9px] text-neutral-600 font-medium mt-0.5">{rec.note}</div>
+                          )}
+                        </div>
+                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 border border-black ${rec.type === 'advance' ? 'bg-black text-white' : 'bg-neutral-100 text-black'}`}>
+                          {rec.type === 'advance' ? 'Advance' : 'Regular'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-black">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalMember(null)}
+                  className="bg-black text-white text-[10px] font-extrabold uppercase tracking-widest px-6 py-2.5 border border-black hover:opacity-80"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
