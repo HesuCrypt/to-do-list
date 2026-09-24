@@ -489,45 +489,48 @@ export default function Dashboard() {
         } catch {}
       }
 
-      if (!storedGoogleAICycleKey) {
-        localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
-        setGoogleAIMembers(initialMembers);
-      } else if (storedGoogleAICycleKey !== currentGoogleAICycleKey) {
-        // The 24th has arrived! New cycle rollover.
-        const [sYear, sMonth] = storedGoogleAICycleKey.split('-').map(Number);
-        const [cYear, cMonth] = currentGoogleAICycleKey.split('-').map(Number);
-        const elapsedCycles = Math.max(1, (cYear - sYear) * 12 + (cMonth - sMonth));
+      const currentGoogleAICycleDate = `${currentGoogleAICycleKey}-24`;
 
-        let advancedKeptCount = 0;
-        const updatedMembers = initialMembers.map((m) => {
+      // Always synchronize members whose paymentDate is before the current cycle date (e.g. Aug 24 -> Sept 24)
+      let migratedFromPast = false;
+      const synchronizedMembers = initialMembers.map((m) => {
+        if (!m.paymentDate || m.paymentDate < currentGoogleAICycleDate) {
+          migratedFromPast = true;
+          let elapsedMonths = 1;
+          if (m.paymentDate && m.paymentDate.length >= 7) {
+            const [mYear, mMonth] = m.paymentDate.slice(0, 7).split('-').map(Number);
+            const [cYear, cMonth] = currentGoogleAICycleKey.split('-').map(Number);
+            if (!isNaN(mYear) && !isNaN(mMonth)) {
+              elapsedMonths = Math.max(1, (cYear - mYear) * 12 + (cMonth - mMonth));
+            }
+          }
+
           const adv = m.advanceMonths || 0;
-          if (adv >= elapsedCycles) {
-            advancedKeptCount++;
+          if (adv >= elapsedMonths) {
             return {
               ...m,
-              advanceMonths: adv - elapsedCycles,
+              advanceMonths: adv - elapsedMonths,
               isPaid: true,
-              paymentDate: `${currentGoogleAICycleKey}-24`,
+              paymentDate: currentGoogleAICycleDate,
             };
           } else {
             return {
               ...m,
               advanceMonths: 0,
               isPaid: false,
-              paymentDate: `${currentGoogleAICycleKey}-24`,
+              paymentDate: currentGoogleAICycleDate,
             };
           }
-        });
-
-        localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
-        localStorage.setItem('dash_google_ai_members', JSON.stringify(updatedMembers));
-        setGoogleAIMembers(updatedMembers);
-        if (initialMembers.length > 0) {
-          setGoogleAICycleNotice(`Google AI Pro subscription reset for the new cycle (24th). ${advancedKeptCount} member(s) with advance payment remained marked as Collected.`);
         }
-      } else {
-        setGoogleAIMembers(initialMembers);
+        return m;
+      });
+
+      localStorage.setItem('dash_google_ai_cycleKey', currentGoogleAICycleKey);
+      if (migratedFromPast) {
+        localStorage.setItem('dash_google_ai_members', JSON.stringify(synchronizedMembers));
+        setGoogleAICycleNotice(`Active cycle is September 24. Member records were rolled over from August.`);
       }
+      setGoogleAIMembers(synchronizedMembers);
 
       const storedGoogleAIPlanCost = localStorage.getItem('dash_google_ai_plan_cost');
       if (storedGoogleAIPlanCost && storedGoogleAIPlanCost !== '') {
@@ -941,25 +944,44 @@ export default function Dashboard() {
   };
 
   const handleResetGoogleAICollections = () => {
+    const curKey = googleAICycleKey || getGoogleAICycleKey();
+    const currentDueDate = `${curKey}-24`;
     const hasAdvance = googleAIMembers.some((m) => (m.advanceMonths || 0) > 0);
     if (hasAdvance) {
       const choice = confirm(
-        'Reset current cycle collections?\n\n[OK] = Reset only regular members (keep members who prepaid in advance)\n[Cancel] = Cancel'
+        `Reset current cycle collections for ${currentDueDate}?\n\n[OK] = Reset regular members to Pending (preserves advance payments)\n[Cancel] = Cancel`
       );
       if (!choice) return;
       setGoogleAIMembers(
         googleAIMembers.map((m) => {
-          if ((m.advanceMonths || 0) > 0) return m;
-          return { ...m, isPaid: false };
+          if ((m.advanceMonths || 0) > 0) return { ...m, paymentDate: currentDueDate };
+          return { ...m, isPaid: false, paymentDate: currentDueDate };
         })
       );
-      setGoogleAICycleNotice('Current cycle reset. Members with advance payments were kept paid.');
+      setGoogleAICycleNotice(`Current cycle reset to ${currentDueDate}. Members with advance payments were kept paid.`);
     } else {
-      if (confirm('Reset collection status for all members for this cycle?')) {
-        setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false })));
-        setGoogleAICycleNotice('All members marked pending for the current cycle.');
+      if (confirm(`Reset collection status for all members to ${currentDueDate}?`)) {
+        setGoogleAIMembers(googleAIMembers.map((m) => ({ ...m, isPaid: false, paymentDate: currentDueDate })));
+        setGoogleAICycleNotice(`All members marked pending for ${currentDueDate}.`);
       }
     }
+  };
+
+  const handleSyncToCurrentCycle = () => {
+    const curKey = googleAICycleKey || getGoogleAICycleKey();
+    const currentDueDate = `${curKey}-24`;
+
+    setGoogleAIMembers(
+      googleAIMembers.map((m) => {
+        const adv = m.advanceMonths || 0;
+        return {
+          ...m,
+          paymentDate: currentDueDate,
+          isPaid: adv > 0 ? true : false,
+        };
+      })
+    );
+    setGoogleAICycleNotice(`All members synchronized to active cycle due date: ${currentDueDate}.`);
   };
 
   const handleAdvanceGoogleAICycle = () => {
@@ -2702,6 +2724,14 @@ export default function Dashboard() {
           <div className="flex items-center flex-wrap gap-2">
             <button
               type="button"
+              onClick={handleSyncToCurrentCycle}
+              className="text-[9px] font-black uppercase tracking-wider bg-white hover:bg-neutral-100 text-black px-3 py-2 border border-black transition-colors"
+              title="Force sync all member payment dates to current cycle (Sept 24)"
+            >
+              Sync to Sept 24
+            </button>
+            <button
+              type="button"
               onClick={handleMarkAllGoogleAIPaid}
               className="text-[9px] font-black uppercase tracking-wider bg-white hover:bg-neutral-100 text-black px-3 py-2 border border-black transition-colors"
               title="Mark all members collected for current cycle"
@@ -2712,7 +2742,7 @@ export default function Dashboard() {
               type="button"
               onClick={handleResetGoogleAICollections}
               className="text-[9px] font-black uppercase tracking-wider bg-white hover:bg-neutral-100 text-black px-3 py-2 border border-black transition-colors"
-              title="Reset current cycle status (preserves advance payments)"
+              title="Reset current cycle status to Sept 24 (preserves advance payments)"
             >
               Reset Cycle
             </button>
