@@ -24,6 +24,10 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import WorkNotesTab from '@/components/WorkNotesTab';
+import CalendarTab from '@/components/CalendarTab';
+import { WorkNote, checkDateBusyStatus } from '@/lib/calendar-utils';
+
 
 // --- TYPES ---
 type TaskCategory = 'Work' | 'Personal' | 'Urgent' | 'None';
@@ -333,7 +337,9 @@ const getDashSnapshot = (storage: Storage) => {
 
 // --- MAIN COMPONENT ---
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'tasks' | 'overtime' | 'finance' | 'motorcycle' | 'google-ai'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'work-notes' | 'calendar' | 'overtime' | 'finance' | 'motorcycle' | 'google-ai'>('tasks');
+  const [workNotes, setWorkNotes] = useState<WorkNote[]>([]);
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>('');
 
   // Google AI Pro State
   const [googleAIMembers, setGoogleAIMembers] = useState<GoogleAIMember[]>([]);
@@ -429,6 +435,13 @@ export default function Dashboard() {
       setIsClient(true);
       const storedTasks = localStorage.getItem('dash_tasks');
       if (storedTasks) setTasks(JSON.parse(storedTasks));
+
+      const storedWorkNotes = localStorage.getItem('dash_work_notes');
+      if (storedWorkNotes) {
+        try {
+          setWorkNotes(JSON.parse(storedWorkNotes));
+        } catch {}
+      }
 
       const storedWorkLogs = localStorage.getItem('dash_workLogs');
       if (storedWorkLogs) setWorkLogs(JSON.parse(storedWorkLogs));
@@ -584,6 +597,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_tasks', JSON.stringify(tasks));
   }, [tasks, isClient]);
+
+  useEffect(() => {
+    if (isClient) localStorage.setItem('dash_work_notes', JSON.stringify(workNotes));
+  }, [workNotes, isClient]);
 
   useEffect(() => {
     if (isClient) localStorage.setItem('dash_workLogs', JSON.stringify(workLogs));
@@ -759,7 +776,7 @@ export default function Dashboard() {
   };
 
   const handleDeleteTask = (id: string) => {
-    setTasks(tasks.filter((t) => t.id !== id));
+    setTasks((prev) => prev.filter((t) => t.id !== id));
   };
 
   const handleAddLog = (e: React.FormEvent) => {
@@ -1386,6 +1403,32 @@ export default function Dashboard() {
                 className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
               />
             )}
+            {/* Live Busy Status Indicator */}
+            {newTaskDeadline && (() => {
+              const busyInfo = checkDateBusyStatus(newTaskDeadline, tasks, workNotes);
+              return (
+                <div className="mt-2">
+                  {busyInfo.isBusy ? (
+                    <div className="border border-red-600 bg-red-50 p-2 text-red-900 text-xs font-semibold">
+                      <div className="flex items-center gap-1.5 font-extrabold text-[10px] uppercase tracking-wider text-red-700">
+                        <span className="w-2 h-2 rounded-full bg-red-600 shrink-0 animate-pulse" />
+                        <span>🔴 BUSY DAY</span>
+                      </div>
+                      <p className="text-[10px] text-red-800 font-bold mt-0.5">
+                        {busyInfo.busyReason}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="border border-green-600 bg-green-50 p-1.5 text-green-900 text-xs font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-green-600 shrink-0" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-green-700">
+                        🟢 FREE / AVAILABLE
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div className="md:col-span-2 flex flex-col justify-end pb-2">
             <label className="flex items-center space-x-2 cursor-pointer group">
@@ -1413,15 +1456,33 @@ export default function Dashboard() {
             className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 placeholder-neutral-400 text-sm font-semibold resize-none"
           />
         </div>
-        <button type="submit" className="w-full md:w-auto bg-black text-white px-8 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center space-x-2">
-          <Plus size={16} /> <span>Submit Task</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button type="submit" className="w-full sm:w-auto bg-black text-white px-8 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity flex items-center justify-center space-x-2">
+            <Plus size={16} /> <span>Submit Task</span>
+          </button>
+          <button 
+            type="button" 
+            onClick={() => setActiveTab('calendar')}
+            className="w-full sm:w-auto border border-black bg-white text-black px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-100 transition-colors flex items-center justify-center space-x-2"
+          >
+            <CalendarDays size={14} /> <span>Open Calendar</span>
+          </button>
+        </div>
       </form>
 
       {/* Task List */}
       <div className="border border-black bg-white">
         <div className="border-b border-black p-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h2 className="text-lg font-extrabold uppercase tracking-tight">Tasks Queue</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-extrabold uppercase tracking-tight">Tasks Queue</h2>
+            <button
+              type="button"
+              onClick={() => setActiveTab('calendar')}
+              className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 border border-black hover:bg-black hover:text-white transition-colors flex items-center gap-1"
+            >
+              <CalendarDays size={11} /> <span>Calendar View</span>
+            </button>
+          </div>
           {/* Filtering UI */}
           <div className="flex gap-2 text-[10px] font-bold uppercase tracking-widest overflow-x-auto hide-scrollbar pb-1 md:pb-0">
             {['All', 'Work', 'Personal', 'Urgent'].map(cat => (
@@ -3537,6 +3598,8 @@ export default function Dashboard() {
             <nav className="flex gap-1">
               {[
                 { id: 'tasks', label: 'Tasks' },
+                { id: 'work-notes', label: 'Work Notes' },
+                { id: 'calendar', label: 'Calendar' },
                 { id: 'overtime', label: 'Overtime' },
                 { id: 'finance', label: 'Finance' },
                 { id: 'motorcycle', label: 'Motorcycle' },
@@ -3569,6 +3632,30 @@ export default function Dashboard() {
         {/* Tab Content */}
         <main className="min-h-[60vh] px-4 sm:px-10">
           {activeTab === 'tasks' && renderTasksTab()}
+          {activeTab === 'work-notes' && (
+            <WorkNotesTab
+              workNotes={workNotes}
+              setWorkNotes={setWorkNotes}
+              tasks={tasks}
+              isDark={isDark}
+              onNavigateToCalendar={(date) => {
+                if (date) setCalendarSelectedDate(date);
+                setActiveTab('calendar');
+              }}
+            />
+          )}
+          {activeTab === 'calendar' && (
+            <CalendarTab
+              tasks={tasks}
+              setTasks={setTasks}
+              workNotes={workNotes}
+              setWorkNotes={setWorkNotes}
+              isDark={isDark}
+              initialSelectedDate={calendarSelectedDate}
+              onNavigateToWorkNotes={() => setActiveTab('work-notes')}
+              onNavigateToTasks={() => setActiveTab('tasks')}
+            />
+          )}
           {activeTab === 'overtime' && renderOvertimeTab()}
           {activeTab === 'finance' && renderFinanceTab()}
           {activeTab === 'motorcycle' && renderMotorcycleTab()}
