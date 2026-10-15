@@ -12,11 +12,15 @@ export type Task = {
 
 export type WorkNoteCategory = 'Development' | 'Meeting' | 'Review' | 'Admin' | 'Design' | 'General';
 
+export type WorkStatus = 'To Do' | 'In Progress' | 'Completed' | 'Blocked';
+
 export type WorkNote = {
   id: string;
   title: string;
   date: string; // YYYY-MM-DD
   time?: string; // HH:MM or time range
+  hours?: string; // e.g. "2h" or "1.5"
+  status?: WorkStatus;
   category: WorkNoteCategory;
   content: string;
   isCompleted?: boolean;
