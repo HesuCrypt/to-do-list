@@ -26,12 +26,19 @@ import {
   Briefcase,
   Calendar as CalendarIcon,
   MoreHorizontal,
-  Layers
+  Layers,
+  Cloud
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import WorkNotesTab from '@/components/WorkNotesTab';
 import CalendarTab from '@/components/CalendarTab';
+import FirebaseSyncModal from '@/components/FirebaseSyncModal';
+import { 
+  getActiveFirebaseConfig, 
+  subscribeToCloudDashboard, 
+  saveToCloudDashboard 
+} from '@/lib/firebase';
 import { WorkNote, checkDateBusyStatus, formatTime12Hour, parseTimeToStandard } from '@/lib/calendar-utils';
 
 
@@ -446,6 +453,8 @@ export default function Dashboard() {
   const [dbSyncStatus, setDbSyncStatus] = useState<'connected' | 'syncing' | 'offline'>('syncing');
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [showMobileMore, setShowMobileMore] = useState(false);
+  const [showFirebaseModal, setShowFirebaseModal] = useState(false);
+  const [isFirebaseLive, setIsFirebaseLive] = useState(false);
 
   useEffect(() => {
     queueMicrotask(async () => {
@@ -809,7 +818,43 @@ export default function Dashboard() {
     isClient,
   ]);
 
-  // Auto-persist changes to local SQLite database
+  // Real-time Cloud Sync subscription via Firebase Firestore
+  useEffect(() => {
+    if (!isClient) return;
+    const cfg = getActiveFirebaseConfig();
+    if (!cfg) return;
+
+    const unsubscribe = subscribeToCloudDashboard((cloudData) => {
+      if (!cloudData) return;
+      setIsFirebaseLive(true);
+      if (Array.isArray(cloudData.tasks)) setTasks(cloudData.tasks);
+      if (Array.isArray(cloudData.workNotes)) setWorkNotes(cloudData.workNotes);
+      if (Array.isArray(cloudData.workLogs)) setWorkLogs(cloudData.workLogs);
+      if (Array.isArray(cloudData.bills)) setBills(cloudData.bills);
+      if (cloudData.settings) {
+        const s = cloudData.settings;
+        if (typeof s.dayExpensesTotal === 'number') setDayExpensesTotal(s.dayExpensesTotal);
+        if (s.dayExpensesLastReset) setDayExpensesLastReset(s.dayExpensesLastReset);
+        if (s.motoProfile) setMotoProfile(s.motoProfile);
+        if (s.motoAccessories) setMotoAccessories(s.motoAccessories);
+        if (s.motoFuelLogs) setMotoFuelLogs(s.motoFuelLogs);
+        if (s.motoMaintenanceLogs) setMotoMaintenanceLogs(s.motoMaintenanceLogs);
+        if (s.motoParkingLogs) setMotoParkingLogs(s.motoParkingLogs);
+        if (typeof s.meralcoBill === 'number' || s.meralcoBill === '') setMeralcoBill(s.meralcoBill);
+        if (typeof s.samsungRemaining === 'number' || s.samsungRemaining === '') setSamsungRemaining(s.samsungRemaining);
+        if (s.homePaid) setHomePaid(s.homePaid);
+        if (typeof s.monthlyExpensesTotal === 'number') setMonthlyExpensesTotal(s.monthlyExpensesTotal);
+        if (Array.isArray(s.googleAIMembers)) setGoogleAIMembers(s.googleAIMembers);
+        if (typeof s.googleAIPlanCost === 'number') setGoogleAIPlanCost(s.googleAIPlanCost);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [isClient]);
+
+  // Auto-persist changes to local SQLite database and Firebase Cloud
   useEffect(() => {
     if (!isClient || !isInitialLoadDone) return;
 
@@ -840,6 +885,7 @@ export default function Dashboard() {
         },
       };
 
+      // 1. Sync to local SQLite API
       fetch('/api/dashboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -850,6 +896,15 @@ export default function Dashboard() {
           else setDbSyncStatus('offline');
         })
         .catch(() => setDbSyncStatus('offline'));
+
+      // 2. Sync to Firebase Cloud Firestore for real-time mobile/desktop sync
+      if (getActiveFirebaseConfig()) {
+        saveToCloudDashboard(payload)
+          .then((ok) => {
+            if (ok) setIsFirebaseLive(true);
+          })
+          .catch(() => {});
+      }
     }, 450);
 
     return () => clearTimeout(timer);
@@ -3801,24 +3856,30 @@ export default function Dashboard() {
               <h1 className="text-sm sm:text-2xl font-black uppercase tracking-tight sm:tracking-tighter leading-none">
                 Personal Dashboard
               </h1>
-              {/* SQLite DB Status Badge */}
-              <div className="flex items-center gap-1.5 mt-1">
-                <span
-                  className={`w-2 h-2 rounded-full inline-block ${
-                    dbSyncStatus === 'connected'
-                      ? 'bg-green-600 animate-pulse'
-                      : dbSyncStatus === 'syncing'
-                      ? 'bg-amber-500 animate-spin'
-                      : 'bg-red-500'
+              {/* DB & Cloud Sync Status Badge */}
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setShowFirebaseModal(true)}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 border text-[9px] font-mono font-bold uppercase tracking-wider transition-colors ${
+                    isFirebaseLive
+                      ? 'border-green-600 bg-green-50 text-green-950 hover:bg-green-100'
+                      : 'border-black/30 bg-neutral-100 text-neutral-800 hover:border-black'
                   }`}
-                />
-                <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-600">
-                  {dbSyncStatus === 'connected'
-                    ? 'SQLite DB Synced'
-                    : dbSyncStatus === 'syncing'
-                    ? 'Saving to SQLite...'
-                    : 'Offline Cache'}
-                </span>
+                  title="Click to configure cross-device Cloud Sync"
+                >
+                  <Cloud size={11} className={isFirebaseLive ? 'text-green-600' : 'text-neutral-500'} />
+                  <span>{isFirebaseLive ? 'Firebase Live Sync' : 'Setup Cloud Sync'}</span>
+                </button>
+
+                <div className="hidden sm:flex items-center gap-1 text-[9px] font-mono font-semibold text-neutral-500">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full inline-block ${
+                      dbSyncStatus === 'connected' ? 'bg-green-600' : 'bg-amber-500 animate-spin'
+                    }`}
+                  />
+                  <span>SQLite</span>
+                </div>
               </div>
             </div>
           </div>
@@ -4045,9 +4106,53 @@ export default function Dashboard() {
                   <span className="text-[9px] opacity-60">Subscriptions & Members</span>
                 </button>
               </div>
+
+              <div className="pt-2 border-t border-black/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMobileMore(false);
+                    setShowFirebaseModal(true);
+                  }}
+                  className="w-full p-3 border border-black bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center gap-2 font-black uppercase text-xs tracking-wider"
+                >
+                  <Cloud size={16} />
+                  <span>Configure Cross-Device Cloud Sync</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
+
+        {/* Firebase Cloud Sync Modal */}
+        <FirebaseSyncModal
+          isOpen={showFirebaseModal}
+          onClose={() => setShowFirebaseModal(false)}
+          currentData={{
+            tasks,
+            workNotes,
+            workLogs,
+            bills,
+            settings: {
+              dayExpensesTotal,
+              dayExpensesLastReset,
+              motoProfile,
+              motoAccessories,
+              motoFuelLogs,
+              motoMaintenanceLogs,
+              motoParkingLogs,
+              meralcoBill,
+              samsungRemaining,
+              homePaid,
+              monthlyExpensesTotal,
+              googleAIMembers,
+              googleAIPlanCost,
+              googleAICycleKey,
+              theme: isDark ? 'dark' : 'light',
+            },
+          }}
+          onSyncSuccess={() => setIsFirebaseLive(true)}
+        />
 
       </div>
       )}
