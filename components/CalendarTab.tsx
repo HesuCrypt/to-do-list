@@ -9,20 +9,18 @@ import {
   CheckCircle, 
   Circle, 
   Plus, 
-  AlertCircle,
-  FileText,
-  Briefcase,
-  Check,
-  X,
-  Trash2
+  FileText, 
+  X, 
+  Trash2,
+  CalendarRange
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { 
   Task, 
   TaskCategory, 
   WorkNote, 
   checkDateBusyStatus, 
-  formatDateToYYYYMMDD 
+  formatDateToYYYYMMDD,
+  isTaskOnDate
 } from '@/lib/calendar-utils';
 
 interface CalendarTabProps {
@@ -65,11 +63,18 @@ export default function CalendarTab({
     initialSelectedDate || todayStr
   );
 
-  // Quick add modal state
-  const [quickAddType, setQuickAddType] = useState<'task' | 'note' | null>(null);
+  // Quick add modal / form state
+  const [quickAddType, setQuickAddType] = useState<'event' | 'task' | 'note' | null>(null);
   const [quickAddText, setQuickAddText] = useState('');
   const [quickAddTime, setQuickAddTime] = useState('14:00');
   const [quickAddCategory, setQuickAddCategory] = useState<string>('Work');
+
+  // Event Date Range State (Start Date & End Date)
+  const [eventStartDate, setEventStartDate] = useState(selectedDateStr);
+  const [eventEndDate, setEventEndDate] = useState(selectedDateStr);
+  const [eventStartTime, setEventStartTime] = useState('09:00');
+  const [eventEndTime, setEventEndTime] = useState('17:00');
+  const [eventDescription, setEventDescription] = useState('');
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -86,6 +91,13 @@ export default function CalendarTab({
   const handleGoToToday = () => {
     setCurrentDate(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDateStr(todayStr);
+  };
+
+  const handleOpenAddEvent = (targetDate?: string) => {
+    const d = targetDate || selectedDateStr || todayStr;
+    setEventStartDate(d);
+    setEventEndDate(d);
+    setQuickAddType('event');
   };
 
   // Month grid calculation
@@ -169,11 +181,7 @@ export default function CalendarTab({
 
   // Tasks and Work Notes on selected date
   const selectedTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      if (!t.deadline) return false;
-      const d = t.deadline.includes('T') ? t.deadline.split('T')[0] : t.deadline.trim();
-      return d === selectedDateStr;
-    });
+    return tasks.filter((t) => isTaskOnDate(t, selectedDateStr));
   }, [tasks, selectedDateStr]);
 
   const selectedWorkNotes = useMemo(() => {
@@ -208,13 +216,33 @@ export default function CalendarTab({
     e.preventDefault();
     if (!quickAddText.trim()) return;
 
-    if (quickAddType === 'task') {
+    if (quickAddType === 'event') {
+      const start = eventStartDate || selectedDateStr;
+      const end = eventEndDate && eventEndDate >= start ? eventEndDate : start;
+      const deadline = eventEndTime ? `${end}T${eventEndTime}` : (eventStartTime ? `${start}T${eventStartTime}` : end);
+      
+      const newEvent: Task = {
+        id: crypto.randomUUID(),
+        text: quickAddText.trim(),
+        description: eventDescription.trim() || undefined,
+        startDate: start,
+        endDate: end,
+        deadline,
+        isImportant: quickAddCategory === 'Urgent',
+        isCompleted: false,
+        category: (quickAddCategory as TaskCategory) || 'Work',
+      };
+      setTasks((prev) => [newEvent, ...prev]);
+      setSelectedDateStr(start);
+    } else if (quickAddType === 'task') {
       const deadline = quickAddTime ? `${selectedDateStr}T${quickAddTime}` : selectedDateStr;
       const newTask: Task = {
         id: crypto.randomUUID(),
         text: quickAddText.trim(),
         deadline,
-        isImportant: false,
+        startDate: selectedDateStr,
+        endDate: selectedDateStr,
+        isImportant: quickAddCategory === 'Urgent',
         isCompleted: false,
         category: (quickAddCategory as TaskCategory) || 'Work',
       };
@@ -235,13 +263,19 @@ export default function CalendarTab({
     }
 
     setQuickAddText('');
+    setEventDescription('');
     setQuickAddType(null);
   };
 
   // Month stats
   const monthStats = useMemo(() => {
     const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
-    const monthTasks = tasks.filter((t) => t.deadline && t.deadline.startsWith(monthPrefix));
+    const monthTasks = tasks.filter((t) => {
+      if (t.deadline && t.deadline.startsWith(monthPrefix)) return true;
+      if (t.startDate && t.startDate.startsWith(monthPrefix)) return true;
+      if (t.endDate && t.endDate.startsWith(monthPrefix)) return true;
+      return false;
+    });
     const monthNotes = workNotes.filter((w) => w.date && w.date.startsWith(monthPrefix));
     return {
       totalTasks: monthTasks.length,
@@ -263,7 +297,7 @@ export default function CalendarTab({
           <span className="text-[9px] font-bold text-red-600 uppercase tracking-wider mt-0.5">● Automatic Busy</span>
         </div>
         <div className="border border-black p-5 flex flex-col justify-center items-center bg-black text-white">
-          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">Month Tasks</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">Month Events &amp; Tasks</p>
           <p className="text-3xl font-extrabold">{monthStats.totalTasks}</p>
           <span className="text-[9px] opacity-70">({monthStats.completedTasks} completed)</span>
         </div>
@@ -302,6 +336,14 @@ export default function CalendarTab({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => handleOpenAddEvent()}
+              className="px-3.5 py-2 border border-black bg-black text-white text-[10px] font-bold uppercase tracking-wider hover:opacity-80 transition-opacity flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+              title="Add event with start and end dates"
+            >
+              <CalendarRange size={14} /> <span>+ Add Event</span>
+            </button>
+            <button
+              type="button"
               onClick={handlePrevMonth}
               className="p-2 border border-black bg-white hover:bg-black hover:text-white transition-colors"
               aria-label="Previous Month"
@@ -324,18 +366,22 @@ export default function CalendarTab({
           <span className="opacity-50">Legend:</span>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 bg-red-600 border border-black inline-block" />
-            <span>Red = Busy Day (Mon–Fri 10AM–7PM / Tasks)</span>
+            <span>Red = Busy Day (Mon–Fri 10AM–7PM / Events)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 bg-white border border-green-600 inline-block text-green-700" />
-            <span>Green = Available (Weekend, No Tasks)</span>
+            <span>Green = Available (Weekend, No Items)</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-black inline-block" />
-            <span>Task Scheduled</span>
+            <span className="w-2.5 h-2.5 bg-black inline-block" />
+            <span>Event / Task</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-blue-600 inline-block" />
+            <span className="w-2.5 h-2.5 bg-amber-400 border border-black inline-block" />
+            <span>Date Range Event</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
             <span>Work Note</span>
           </div>
         </div>
@@ -369,11 +415,7 @@ export default function CalendarTab({
           <div className="grid grid-cols-7 divide-y divide-black/20">
             {calendarDays.map((day) => {
               const dayBusy = checkDateBusyStatus(day.dateStr, tasks, workNotes);
-              const dayTasks = tasks.filter((t) => {
-                if (!t.deadline) return false;
-                const d = t.deadline.includes('T') ? t.deadline.split('T')[0] : t.deadline.trim();
-                return d === day.dateStr;
-              });
+              const dayTasks = tasks.filter((t) => isTaskOnDate(t, day.dateStr));
               const dayNotes = workNotes.filter((w) => {
                 if (!w.date) return false;
                 const d = w.date.includes('T') ? w.date.split('T')[0] : w.date.trim();
@@ -430,107 +472,298 @@ export default function CalendarTab({
                     </div>
                   )}
 
-                  {/* Tasks and Work Notes preview badges in cell */}
+                  {/* Events, Tasks, and Work Notes preview badges in cell */}
                   <div className="space-y-1 w-full mt-1 overflow-hidden">
-                    {dayTasks.slice(0, 2).map((t) => (
-                      <div
-                        key={t.id}
-                        className={`text-[8px] sm:text-[9px] px-1 py-0.5 border truncate font-bold ${
-                          t.isCompleted
-                            ? 'border-neutral-300 bg-neutral-100 line-through text-neutral-400'
-                            : 'border-black bg-neutral-900 text-white'
-                        }`}
-                        title={t.text}
-                      >
-                        {t.text}
-                      </div>
-                    ))}
+                    {dayTasks.slice(0, 2).map((t) => {
+                      const isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
+                      return (
+                        <div
+                          key={t.id}
+                          className={`text-[8px] sm:text-[9px] px-1 py-0.5 border truncate font-bold flex items-center justify-between gap-0.5 ${
+                            t.isCompleted
+                              ? 'border-neutral-300 bg-neutral-100 line-through text-neutral-400'
+                              : isMultiDay
+                              ? 'border-black bg-neutral-900 text-white'
+                              : 'border-black bg-white text-black'
+                          }`}
+                          title={`${t.text}${isMultiDay ? ` (${t.startDate} → ${t.endDate})` : ''}`}
+                        >
+                          <span className="truncate">{t.text}</span>
+                          {isMultiDay && (
+                            <span className="text-[7px] bg-amber-400 text-black px-1 font-black uppercase shrink-0">
+                              Event
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                     {dayTasks.length > 2 && (
                       <div className="text-[8px] font-bold text-neutral-500">
-                        +{dayTasks.length - 2} more task{dayTasks.length - 2 > 1 ? 's' : ''}
+                        +{dayTasks.length - 2} more item{dayTasks.length - 2 > 1 ? 's' : ''}
                       </div>
                     )}
 
                     {dayNotes.length > 0 && dayTasks.length < 2 && (
                       <div className="text-[8px] text-blue-700 font-bold truncate flex items-center gap-0.5">
-                        <FileText size={8} /> {dayNotes.length} note{dayNotes.length > 1 ? 's' : ''}
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block shrink-0" />
+                        <span className="truncate">{dayNotes[0].title}</span>
                       </div>
                     )}
                   </div>
-
-                  {/* Bottom selection accent */}
-                  {day.isSelected && (
-                    <div className="w-full h-1 bg-black absolute bottom-0 left-0" />
-                  )}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Selected Day Inspector / Agenda Panel */}
-        <div className="lg:col-span-4 border border-black bg-white p-5 sm:p-6 space-y-6">
-          <div className="border-b border-black pb-3">
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-60 block">Day Agenda</span>
-            <h3 className="text-lg font-black uppercase tracking-tight">{selectedDateFormatted}</h3>
+        {/* Selected Day Inspector Side Panel */}
+        <div className="lg:col-span-4 border border-black bg-white p-5 space-y-6">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">
+                Selected Day
+              </span>
+              <span className="text-xs font-mono font-bold">{selectedDateStr}</span>
+            </div>
+            <h3 className="text-lg font-black uppercase tracking-tight mt-1">
+              {selectedDateFormatted}
+            </h3>
           </div>
 
-          {/* BUSY STATUS BANNER (RED IF BUSY) */}
+          {/* Availability Alert Box */}
           {selectedBusyStatus.isBusy ? (
-            <div className="border-2 border-red-600 bg-red-50 p-4 text-red-950 space-y-2">
+            <div className="border border-red-600 bg-red-50 p-3 space-y-1">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-red-600 shrink-0 animate-pulse" />
+                <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse" />
                 <h4 className="font-black uppercase text-xs sm:text-sm tracking-wider text-red-700">
-                  🔴 BUSY DAY DETECTED
+                  🔴 BUSY DAY
                 </h4>
               </div>
-              <p className="text-xs font-bold text-red-900">
+              <p className="text-xs font-semibold text-red-900">
                 {selectedBusyStatus.busyReason}
               </p>
-              {selectedBusyStatus.isWorkHours && (
-                <div className="text-[11px] text-red-800 bg-red-100/80 p-2 border border-red-300 font-medium">
-                  <strong>Automatic Schedule:</strong> Monday to Friday 10:00 AM – 7:00 PM blocked for work shift.
-                </div>
-              )}
             </div>
           ) : (
-            <div className="border-2 border-green-600 bg-green-50 p-4 text-green-950 space-y-1">
+            <div className="border border-green-600 bg-green-50 p-3 space-y-1">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-green-600 shrink-0" />
+                <span className="w-2.5 h-2.5 rounded-full bg-green-600" />
                 <h4 className="font-black uppercase text-xs sm:text-sm tracking-wider text-green-700">
                   🟢 AVAILABLE / FREE
                 </h4>
               </div>
               <p className="text-xs font-semibold text-green-900">
-                Weekend with no scheduled tasks or deadlines.
+                Weekend with no scheduled events or tasks.
               </p>
             </div>
           )}
 
-          {/* Quick Add Buttons for Selected Date */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Quick Add Action Selector */}
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => handleOpenAddEvent()}
+              className={`py-2 px-1.5 border border-black text-[9px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                quickAddType === 'event' ? 'bg-black text-white ring-2 ring-black' : 'bg-black text-white hover:opacity-85'
+              }`}
+            >
+              <CalendarRange size={12} /> <span>Add Event</span>
+            </button>
             <button
               type="button"
               onClick={() => setQuickAddType('task')}
-              className="py-2.5 px-3 border border-black bg-black text-white text-[10px] font-bold uppercase tracking-wider hover:opacity-80 flex items-center justify-center gap-1.5"
+              className={`py-2 px-1.5 border border-black text-[9px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                quickAddType === 'task' ? 'bg-neutral-800 text-white' : 'bg-white text-black hover:bg-neutral-100'
+              }`}
             >
-              <Plus size={14} /> <span>Add Task</span>
+              <Plus size={12} /> <span>Add Task</span>
             </button>
             <button
               type="button"
               onClick={() => setQuickAddType('note')}
-              className="py-2.5 px-3 border border-black bg-white text-black text-[10px] font-bold uppercase tracking-wider hover:bg-neutral-100 flex items-center justify-center gap-1.5"
+              className={`py-2 px-1.5 border border-black text-[9px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                quickAddType === 'note' ? 'bg-neutral-800 text-white' : 'bg-white text-black hover:bg-neutral-100'
+              }`}
             >
-              <FileText size={14} /> <span>Add Note</span>
+              <FileText size={12} /> <span>Add Note</span>
             </button>
           </div>
 
-          {/* Quick Add Form */}
-          {quickAddType && (
-            <form onSubmit={handleQuickAdd} className="border border-black p-3 bg-neutral-50 space-y-3">
+          {/* Form: Add Event with Start Date and End Date */}
+          {quickAddType === 'event' && (
+            <form onSubmit={handleQuickAdd} className="border-2 border-black p-4 bg-white space-y-3 shadow-md animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-black pb-2">
+                <div className="flex items-center gap-1.5">
+                  <CalendarRange size={15} />
+                  <span className="text-[11px] font-black uppercase tracking-tight">
+                    Add Event (Start &amp; End Date)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQuickAddType(null)}
+                  className="p-1 hover:bg-neutral-100 border border-black"
+                  title="Close event form"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                  Event Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={quickAddText}
+                  onChange={(e) => setQuickAddText(e.target.value)}
+                  placeholder="e.g. Design Sprint, Tech Summit, Team Offsite"
+                  className="w-full border border-black px-3 py-2 text-xs font-semibold bg-white focus:outline-none"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              {/* Start Date & End Date Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                    Start Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={eventStartDate}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      setEventStartDate(newStart);
+                      if (eventEndDate < newStart) {
+                        setEventEndDate(newStart);
+                      }
+                    }}
+                    className="w-full border border-black px-2.5 py-1.5 text-xs font-semibold bg-white focus:outline-none uppercase"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider">
+                      End Date <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  <input
+                    type="date"
+                    value={eventEndDate}
+                    min={eventStartDate}
+                    onChange={(e) => setEventEndDate(e.target.value)}
+                    className="w-full border border-black px-2.5 py-1.5 text-xs font-semibold bg-white focus:outline-none uppercase"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Quick Duration Presets for End Date */}
+              <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                <span className="text-[8px] font-bold uppercase opacity-60 mr-1">Quick Duration:</span>
+                <button
+                  type="button"
+                  onClick={() => setEventEndDate(eventStartDate)}
+                  className={`px-2 py-0.5 border border-black text-[9px] font-bold uppercase tracking-wider transition-colors ${
+                    eventEndDate === eventStartDate ? 'bg-black text-white' : 'bg-neutral-100 hover:bg-neutral-200 text-black'
+                  }`}
+                >
+                  Same Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(eventStartDate + 'T00:00:00');
+                    d.setDate(d.getDate() + 1);
+                    setEventEndDate(formatDateToYYYYMMDD(d));
+                  }}
+                  className="px-2 py-0.5 border border-black text-[9px] font-bold uppercase tracking-wider bg-white hover:bg-neutral-100 text-black transition-colors"
+                >
+                  +1 Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(eventStartDate + 'T00:00:00');
+                    d.setDate(d.getDate() + 2);
+                    setEventEndDate(formatDateToYYYYMMDD(d));
+                  }}
+                  className="px-2 py-0.5 border border-black text-[9px] font-bold uppercase tracking-wider bg-white hover:bg-neutral-100 text-black transition-colors"
+                >
+                  +2 Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(eventStartDate + 'T00:00:00');
+                    d.setDate(d.getDate() + 6);
+                    setEventEndDate(formatDateToYYYYMMDD(d));
+                  }}
+                  className="px-2 py-0.5 border border-black text-[9px] font-bold uppercase tracking-wider bg-white hover:bg-neutral-100 text-black transition-colors"
+                >
+                  +1 Week
+                </button>
+              </div>
+
+              {/* Time & Category Row */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Time (Optional)</label>
+                  <input
+                    type="time"
+                    value={eventStartTime}
+                    onChange={(e) => setEventStartTime(e.target.value)}
+                    className="w-full border border-black px-2 py-1 text-xs font-semibold bg-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Category</label>
+                  <select
+                    value={quickAddCategory}
+                    onChange={(e) => setQuickAddCategory(e.target.value)}
+                    className="w-full border border-black px-2 py-1 text-xs font-semibold bg-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="Work">Work</option>
+                    <option value="Personal">Personal</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="None">None</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Description / Notes */}
+              <div>
+                <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Notes / Description (Optional)</label>
+                <textarea
+                  value={eventDescription}
+                  onChange={(e) => setEventDescription(e.target.value)}
+                  placeholder="Location, agenda, conference link..."
+                  rows={2}
+                  className="w-full border border-black px-2.5 py-1.5 text-xs font-semibold bg-white focus:outline-none resize-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-black text-white py-2.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-85 transition-opacity flex items-center justify-center gap-1.5"
+              >
+                <Plus size={14} />
+                <span>
+                  Save Event ({eventStartDate}{eventStartDate !== eventEndDate ? ` → ${eventEndDate}` : ''})
+                </span>
+              </button>
+            </form>
+          )}
+
+          {/* Form: Add Quick Task */}
+          {quickAddType === 'task' && (
+            <form onSubmit={handleQuickAdd} className="border border-black p-3.5 bg-neutral-50 space-y-3">
               <div className="flex items-center justify-between border-b border-black pb-1">
                 <span className="text-[10px] font-black uppercase tracking-wider">
-                  Quick Add {quickAddType === 'task' ? 'Task' : 'Work Note'} for {selectedDateStr}
+                  Quick Add Task for {selectedDateStr}
                 </span>
                 <button
                   type="button"
@@ -544,7 +777,7 @@ export default function CalendarTab({
                 type="text"
                 value={quickAddText}
                 onChange={(e) => setQuickAddText(e.target.value)}
-                placeholder={quickAddType === 'task' ? 'Task title...' : 'Work note title...'}
+                placeholder="Task title..."
                 className="w-full border border-black px-3 py-2 text-xs font-semibold bg-white focus:outline-none"
                 autoFocus
                 required
@@ -559,26 +792,67 @@ export default function CalendarTab({
                     className="w-full border border-black px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none"
                   />
                 </div>
-                {quickAddType === 'task' && (
-                  <div>
-                    <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Category</label>
-                    <select
-                      value={quickAddCategory}
-                      onChange={(e) => setQuickAddCategory(e.target.value)}
-                      className="w-full border border-black px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none"
-                    >
-                      <option value="Work">Work</option>
-                      <option value="Personal">Personal</option>
-                      <option value="Urgent">Urgent</option>
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Category</label>
+                  <select
+                    value={quickAddCategory}
+                    onChange={(e) => setQuickAddCategory(e.target.value)}
+                    className="w-full border border-black px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="Work">Work</option>
+                    <option value="Personal">Personal</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="None">None</option>
+                  </select>
+                </div>
               </div>
               <button
                 type="submit"
                 className="w-full bg-black text-white py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-80"
               >
-                Save to {selectedDateStr}
+                Save Task to {selectedDateStr}
+              </button>
+            </form>
+          )}
+
+          {/* Form: Add Quick Note */}
+          {quickAddType === 'note' && (
+            <form onSubmit={handleQuickAdd} className="border border-black p-3.5 bg-neutral-50 space-y-3">
+              <div className="flex items-center justify-between border-b border-black pb-1">
+                <span className="text-[10px] font-black uppercase tracking-wider">
+                  Quick Add Work Note for {selectedDateStr}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQuickAddType(null)}
+                  className="text-xs hover:opacity-60"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={quickAddText}
+                onChange={(e) => setQuickAddText(e.target.value)}
+                placeholder="Work note title / deliverable..."
+                className="w-full border border-black px-3 py-2 text-xs font-semibold bg-white focus:outline-none"
+                autoFocus
+                required
+              />
+              <div>
+                <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Time (Optional)</label>
+                <input
+                  type="time"
+                  value={quickAddTime}
+                  onChange={(e) => setQuickAddTime(e.target.value)}
+                  className="w-full border border-black px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-black text-white py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-80"
+              >
+                Save Note to {selectedDateStr}
               </button>
             </form>
           )}
@@ -643,11 +917,11 @@ export default function CalendarTab({
             </div>
           </div>
 
-          {/* Tasks List on this Date */}
+          {/* Events & Tasks List on this Date */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-70">
-                Tasks on this Date ({selectedTasks.length})
+                Events &amp; Tasks on this Date ({selectedTasks.length})
               </h4>
               {onNavigateToTasks && (
                 <button
@@ -661,48 +935,63 @@ export default function CalendarTab({
             </div>
 
             {selectedTasks.length === 0 ? (
-              <p className="text-xs text-neutral-400 italic">No tasks scheduled for this day.</p>
+              <p className="text-xs text-neutral-400 italic">No events or tasks scheduled for this day.</p>
             ) : (
               <ul className="space-y-2 border border-black p-3 divide-y divide-black/10">
-                {selectedTasks.map((task) => (
-                  <li key={task.id} className="pt-2 first:pt-0 flex items-start gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleTask(task.id)}
-                      className="mt-0.5 focus:outline-none shrink-0"
-                    >
-                      {task.isCompleted ? (
-                        <CheckCircle size={16} className="text-black" />
-                      ) : (
-                        <Circle size={16} className="text-black" />
-                      )}
-                    </button>
-                    <div className="space-y-0.5 flex-1">
-                      <p
-                        className={`text-xs font-bold leading-tight ${
-                          task.isCompleted ? 'line-through text-neutral-400' : 'text-black'
-                        }`}
+                {selectedTasks.map((task) => {
+                  const isMultiDay = task.startDate && task.endDate && task.startDate !== task.endDate;
+                  return (
+                    <li key={task.id} className="pt-2 first:pt-0 flex items-start gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTask(task.id)}
+                        className="mt-0.5 focus:outline-none shrink-0"
                       >
-                        {task.text}
-                      </p>
-                      <div className="flex items-center gap-2 text-[9px] font-semibold opacity-60">
-                        <span>{task.category}</span>
-                        {task.deadline && task.deadline.includes('T') && (
-                          <span>Due: {task.deadline.split('T')[1]}</span>
+                        {task.isCompleted ? (
+                          <CheckCircle size={16} className="text-black" />
+                        ) : (
+                          <Circle size={16} className="text-black" />
                         )}
+                      </button>
+                      <div className="space-y-1 flex-1">
+                        <p
+                          className={`text-xs font-bold leading-tight ${
+                            task.isCompleted ? 'line-through text-neutral-400' : 'text-black'
+                          }`}
+                        >
+                          {task.text}
+                        </p>
+                        {task.description && (
+                          <p className="text-[10px] text-neutral-600 line-clamp-2">
+                            {task.description}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-semibold pt-0.5">
+                          {isMultiDay ? (
+                            <span className="px-1.5 py-0.2 bg-black text-white text-[8px] font-black uppercase">
+                              Event: {task.startDate} → {task.endDate}
+                            </span>
+                          ) : null}
+                          <span className="px-1.5 py-0.2 bg-neutral-100 border border-black/30 uppercase text-[8px] font-bold">
+                            {task.category}
+                          </span>
+                          {task.deadline && task.deadline.includes('T') && (
+                            <span className="opacity-70">Time: {task.deadline.split('T')[1]}</span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="p-1 opacity-40 hover:opacity-100 hover:text-red-600 transition-all shrink-0"
-                      title="Delete task"
-                      aria-label="Delete task"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="p-1 opacity-40 hover:opacity-100 hover:text-red-600 transition-all shrink-0"
+                        title="Delete task"
+                        aria-label="Delete task"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

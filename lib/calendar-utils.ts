@@ -5,6 +5,8 @@ export type Task = {
   text: string;
   description?: string;
   deadline: string;
+  startDate?: string;
+  endDate?: string;
   isImportant: boolean;
   isCompleted: boolean;
   category: TaskCategory;
@@ -39,6 +41,36 @@ export type BusyCheckResult = {
 };
 
 /**
+ * Checks if a task occurs on a given date (YYYY-MM-DD).
+ * Supports single deadline dates, or date ranges with startDate and endDate.
+ */
+export function isTaskOnDate(task: Task, dateStr: string): boolean {
+  if (!dateStr) return false;
+  const target = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.trim();
+
+  const start = task.startDate ? (task.startDate.includes('T') ? task.startDate.split('T')[0] : task.startDate.trim()) : null;
+  const end = task.endDate ? (task.endDate.includes('T') ? task.endDate.split('T')[0] : task.endDate.trim()) : null;
+  const deadline = task.deadline ? (task.deadline.includes('T') ? task.deadline.split('T')[0] : task.deadline.trim()) : null;
+
+  if (start && end) {
+    return target >= start && target <= end;
+  }
+  if (start && !end) {
+    if (deadline && deadline > start) {
+      return target >= start && target <= deadline;
+    }
+    return target === start;
+  }
+  if (!start && end) {
+    return target <= end;
+  }
+  if (deadline) {
+    return target === deadline;
+  }
+  return false;
+}
+
+/**
  * Checks if a given date string is busy.
  * Mon-Fri 10:00 AM - 7:00 PM is automatically busy.
  * Days with scheduled tasks or work notes are also marked busy.
@@ -71,11 +103,7 @@ export function checkDateBusyStatus(
 
   const isWorkHours = dayOfWeek >= 1 && dayOfWeek <= 5;
 
-  const tasksOnDate = tasks.filter((t) => {
-    if (!t.deadline) return false;
-    const taskDate = t.deadline.includes('T') ? t.deadline.split('T')[0] : t.deadline.trim();
-    return taskDate === cleanDateStr;
-  });
+  const tasksOnDate = tasks.filter((t) => isTaskOnDate(t, cleanDateStr));
 
   const workNotesOnDate = workNotes.filter((w) => {
     if (!w.date) return false;

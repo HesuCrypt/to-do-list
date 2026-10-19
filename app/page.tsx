@@ -37,6 +37,8 @@ type Task = {
   text: string;
   description?: string;
   deadline: string;
+  startDate?: string;
+  endDate?: string;
   isImportant: boolean;
   isCompleted: boolean;
   category: TaskCategory;
@@ -1538,11 +1540,15 @@ export default function Dashboard() {
                             </span>
                           )}
                         </p>
-                        {task.deadline && (
+                        {task.startDate && task.endDate && task.startDate !== task.endDate ? (
+                          <p className="text-[10px] uppercase font-semibold opacity-70 flex items-center mt-1">
+                            Event Range: {task.startDate} → {task.endDate}
+                          </p>
+                        ) : task.deadline ? (
                           <p className="text-[10px] uppercase font-semibold opacity-70 flex items-center mt-1">
                             Due: {formatDate(task.deadline)}
                           </p>
-                        )}
+                        ) : null}
                         {task.description && (
                           <p className="text-xs text-neutral-500 mt-1 leading-relaxed font-normal max-w-prose whitespace-pre-wrap">
                             {task.description}
@@ -1653,11 +1659,15 @@ export default function Dashboard() {
                               </span>
                             )}
                           </p>
-                          {task.deadline && (
+                          {task.startDate && task.endDate && task.startDate !== task.endDate ? (
+                            <p className="text-[10px] uppercase font-semibold opacity-70 flex items-center mt-1">
+                              Event Range: {task.startDate} → {task.endDate}
+                            </p>
+                          ) : task.deadline ? (
                             <p className="text-[10px] uppercase font-semibold opacity-70 flex items-center mt-1">
                               Due: {formatDate(task.deadline)}
                             </p>
-                          )}
+                          ) : null}
                           {task.description && (
                             <p className="text-xs text-neutral-500 mt-1 leading-relaxed font-normal max-w-prose whitespace-pre-wrap">
                               {task.description}
