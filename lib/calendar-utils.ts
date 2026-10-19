@@ -12,7 +12,7 @@ export type Task = {
 
 export type WorkNoteCategory = 'Development' | 'Meeting' | 'Review' | 'Admin' | 'Design' | 'General';
 
-export type WorkStatus = 'To Do' | 'In Progress' | 'Completed' | 'Blocked';
+export type WorkStatus = 'To Do' | 'In Progress' | 'In Progress - No ETA' | 'Blocked' | 'Completed';
 
 export type WorkNote = {
   id: string;
@@ -20,6 +20,7 @@ export type WorkNote = {
   date: string; // YYYY-MM-DD
   time?: string; // HH:MM or time range
   hours?: string; // e.g. "2h" or "1.5"
+  eta?: string; // e.g. "No ETA" or "Today 5 PM", "2026-10-20"
   status?: WorkStatus;
   category: WorkNoteCategory;
   content: string;
@@ -82,25 +83,27 @@ export function checkDateBusyStatus(
     return noteDate === cleanDateStr;
   });
 
-  const isBusy = isWorkHours || tasksOnDate.length > 0;
+  const activeWorkNotesOnDate = workNotesOnDate.filter((w) => !w.isCompleted);
+  const totalItems = tasksOnDate.length + activeWorkNotesOnDate.length;
+  const isBusy = isWorkHours || totalItems > 0;
 
   let busyReason = '';
-  if (isWorkHours && tasksOnDate.length > 0) {
-    busyReason = `Work Hours (10:00 AM - 7:00 PM) + ${tasksOnDate.length} Task${tasksOnDate.length > 1 ? 's' : ''}`;
+  if (isWorkHours && totalItems > 0) {
+    busyReason = `Work Hours (10:00 AM - 7:00 PM) + ${totalItems} Item${totalItems > 1 ? 's' : ''}`;
   } else if (isWorkHours) {
     busyReason = 'Mon–Fri Work Hours (10:00 AM - 7:00 PM)';
-  } else if (tasksOnDate.length > 0) {
-    busyReason = `${tasksOnDate.length} Task${tasksOnDate.length > 1 ? 's' : ''} Scheduled`;
+  } else if (totalItems > 0) {
+    busyReason = `${totalItems} Item${totalItems > 1 ? 's' : ''} Scheduled`;
   }
 
   let summaryText = '';
   if (isWorkHours) {
     summaryText = 'Busy: Mon–Fri Work Hours (10:00 AM – 7:00 PM)';
-    if (tasksOnDate.length > 0) {
-      summaryText += ` • ${tasksOnDate.length} task${tasksOnDate.length > 1 ? 's' : ''} scheduled`;
+    if (totalItems > 0) {
+      summaryText += ` • ${totalItems} item${totalItems > 1 ? 's' : ''} scheduled`;
     }
-  } else if (tasksOnDate.length > 0) {
-    summaryText = `Busy: ${tasksOnDate.length} task${tasksOnDate.length > 1 ? 's' : ''} scheduled`;
+  } else if (totalItems > 0) {
+    summaryText = `Busy: ${totalItems} item${totalItems > 1 ? 's' : ''} scheduled`;
   } else {
     summaryText = 'Available / Free (Weekend, no tasks)';
   }

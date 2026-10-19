@@ -226,6 +226,7 @@ export default function CalendarTab({
         date: selectedDateStr,
         time: quickAddTime || undefined,
         category: 'Development',
+        status: 'In Progress',
         content: '',
         isCompleted: false,
         createdAt: new Date().toISOString(),
@@ -741,14 +742,46 @@ export default function CalendarTab({
                           <Circle size={16} className="text-black" />
                         )}
                       </button>
-                      <div className="space-y-0.5 flex-1">
-                        <p
-                          className={`text-xs font-bold leading-tight ${
-                            note.isCompleted ? 'line-through text-neutral-400' : 'text-black'
-                          }`}
-                        >
-                          {note.title}
-                        </p>
+                      <div className="space-y-1 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p
+                            className={`text-xs font-bold leading-tight ${
+                              note.isCompleted ? 'line-through text-neutral-400' : 'text-black'
+                            }`}
+                          >
+                            {note.title}
+                          </p>
+                          {(note.status === 'In Progress - No ETA' || (note.status === 'In Progress' && note.eta === 'No ETA')) && (
+                            <span className="px-1.5 py-0.2 bg-amber-100 text-amber-950 border border-black text-[8px] font-black uppercase">
+                              No ETA
+                            </span>
+                          )}
+                          {note.status === 'In Progress' && note.eta !== 'No ETA' && (
+                            <span className="px-1.5 py-0.2 bg-neutral-100 text-black border border-black text-[8px] font-bold uppercase">
+                              In Progress
+                            </span>
+                          )}
+                          {note.status === 'Blocked' && (
+                            <span className="px-1.5 py-0.2 bg-red-600 text-white border border-black text-[8px] font-bold uppercase">
+                              Blocked
+                            </span>
+                          )}
+                          {note.category && (
+                            <span className="px-1.5 py-0.2 bg-neutral-50 text-neutral-600 border border-neutral-300 text-[8px] font-semibold uppercase">
+                              {note.category}
+                            </span>
+                          )}
+                          {note.hours && (
+                            <span className="text-[9px] font-semibold text-neutral-500">
+                              [{note.hours}]
+                            </span>
+                          )}
+                          {note.eta && note.eta !== 'No ETA' && (
+                            <span className="text-[9px] font-semibold text-neutral-500">
+                              (ETA: {note.eta})
+                            </span>
+                          )}
+                        </div>
                         {note.content && (
                           <p className="text-[10px] text-neutral-600 line-clamp-2">
                             {note.content}

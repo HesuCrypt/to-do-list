@@ -11,21 +11,18 @@ import {
   Check, 
   Calendar as CalendarIcon, 
   Clock, 
-  Tag, 
-  AlertCircle,
-  Search,
-  Filter,
-  Briefcase,
-  ChevronDown,
-  ChevronUp,
-  AlertTriangle,
-  PlayCircle
+  Search, 
+  Briefcase, 
+  ChevronDown, 
+  ChevronUp, 
+  AlertTriangle, 
+  PlayCircle 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   WorkNote, 
   WorkNoteCategory, 
-  WorkStatus,
+  WorkStatus, 
   Task, 
   checkDateBusyStatus, 
   formatDateToYYYYMMDD 
@@ -49,8 +46,9 @@ const CATEGORIES: WorkNoteCategory[] = [
 ];
 
 const STATUS_LIST: WorkStatus[] = [
-  'To Do',
   'In Progress',
+  'In Progress - No ETA',
+  'To Do',
   'Blocked',
   'Completed',
 ];
@@ -70,6 +68,7 @@ export default function WorkNotesTab({
   const [newCategory, setNewCategory] = useState<WorkNoteCategory>('Development');
   const [newStatus, setNewStatus] = useState<WorkStatus>('In Progress');
   const [newHours, setNewHours] = useState('');
+  const [newEta, setNewEta] = useState('');
   const [newContent, setNewContent] = useState('');
   const [showNotesField, setShowNotesField] = useState(false);
 
@@ -80,6 +79,7 @@ export default function WorkNotesTab({
   const [filterTimeframe, setFilterTimeframe] = useState<'All' | 'Today' | 'Week' | 'Month'>('All');
   const [showCompletedArchive, setShowCompletedArchive] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [standupCopiedToast, setStandupCopiedToast] = useState(false);
 
   // Edit Modal State
   const [editingNote, setEditingNote] = useState<WorkNote | null>(null);
@@ -89,87 +89,7 @@ export default function WorkNotesTab({
     return checkDateBusyStatus(newDate, tasks, workNotes);
   }, [newDate, tasks, workNotes]);
 
-  const handleAddWorkItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-
-    const isCompleted = newStatus === 'Completed';
-
-    const newNote: WorkNote = {
-      id: crypto.randomUUID(),
-      title: newTitle.trim(),
-      date: newDate || todayStr,
-      category: newCategory,
-      status: newStatus,
-      hours: newHours.trim() || undefined,
-      content: newContent.trim(),
-      isCompleted,
-      createdAt: new Date().toISOString(),
-    };
-
-    setWorkNotes((prev) => [newNote, ...prev]);
-    setNewTitle('');
-    setNewHours('');
-    setNewContent('');
-    setShowNotesField(false);
-  };
-
-  const handleToggleComplete = (id: string) => {
-    setWorkNotes((prev) =>
-      prev.map((n) => {
-        if (n.id !== id) return n;
-        const nextCompleted = !n.isCompleted;
-        return {
-          ...n,
-          isCompleted: nextCompleted,
-          status: nextCompleted ? 'Completed' : (n.status === 'Completed' ? 'In Progress' : n.status || 'In Progress'),
-        };
-      })
-    );
-  };
-
-  const handleChangeStatus = (id: string, nextStatus: WorkStatus) => {
-    setWorkNotes((prev) =>
-      prev.map((n) => {
-        if (n.id !== id) return n;
-        return {
-          ...n,
-          status: nextStatus,
-          isCompleted: nextStatus === 'Completed',
-        };
-      })
-    );
-  };
-
-  const handleDeleteNote = (id: string) => {
-    setWorkNotes((prev) => prev.filter((n) => n.id !== id));
-  };
-
-  const handleCopyNote = (note: WorkNote) => {
-    const statusText = note.status || (note.isCompleted ? 'Completed' : 'In Progress');
-    const hoursText = note.hours ? ` [${note.hours}]` : '';
-    const text = `• [${statusText.toUpperCase()}] ${note.title} (${note.date})${hoursText}${
-      note.content ? `\n  - ${note.content.replace(/\n/g, '\n  - ')}` : ''
-    }`;
-    navigator.clipboard.writeText(text);
-    setCopiedId(note.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingNote || !editingNote.title.trim()) return;
-
-    const isCompleted = editingNote.status === 'Completed';
-    setWorkNotes((prev) =>
-      prev.map((n) =>
-        n.id === editingNote.id ? { ...editingNote, isCompleted } : n
-      )
-    );
-    setEditingNote(null);
-  };
-
-  // Filtered Notes
+  // Filtered Notes & Lists (declared before handlers that use them)
   const filteredNotes = useMemo(() => {
     return workNotes
       .filter((note) => {
@@ -179,7 +99,9 @@ export default function WorkNotesTab({
           const matchesTitle = note.title.toLowerCase().includes(q);
           const matchesContent = note.content.toLowerCase().includes(q);
           const matchesCat = note.category.toLowerCase().includes(q);
-          if (!matchesTitle && !matchesContent && !matchesCat) return false;
+          const matchesEta = note.eta ? note.eta.toLowerCase().includes(q) : false;
+          const matchesStatus = (note.status || '').toLowerCase().includes(q);
+          if (!matchesTitle && !matchesContent && !matchesCat && !matchesEta && !matchesStatus) return false;
         }
 
         // Category Filter
@@ -190,7 +112,14 @@ export default function WorkNotesTab({
         // Status Filter
         if (filterStatus !== 'All') {
           const currentStatus = note.status || (note.isCompleted ? 'Completed' : 'In Progress');
-          if (currentStatus !== filterStatus) return false;
+          if (filterStatus === 'In Progress') {
+            if (currentStatus !== 'In Progress' && currentStatus !== 'In Progress - No ETA') return false;
+          } else if (filterStatus === 'In Progress - No ETA') {
+            const isNoEta = currentStatus === 'In Progress - No ETA' || (currentStatus === 'In Progress' && note.eta === 'No ETA');
+            if (!isNoEta) return false;
+          } else {
+            if (currentStatus !== filterStatus) return false;
+          }
         }
 
         // Timeframe filter
@@ -229,13 +158,130 @@ export default function WorkNotesTab({
     return filteredNotes.filter((n) => n.isCompleted || n.status === 'Completed');
   }, [filteredNotes]);
 
+  const handleAddWorkItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+
+    const isCompleted = newStatus === 'Completed';
+
+    const newNote: WorkNote = {
+      id: crypto.randomUUID(),
+      title: newTitle.trim(),
+      date: newDate || todayStr,
+      category: newCategory,
+      status: newStatus,
+      hours: newHours.trim() || undefined,
+      eta: newEta.trim() || (newStatus === 'In Progress - No ETA' ? 'No ETA' : undefined),
+      content: newContent.trim(),
+      isCompleted,
+      createdAt: new Date().toISOString(),
+    };
+
+    setWorkNotes((prev) => [newNote, ...prev]);
+    setNewTitle('');
+    setNewHours('');
+    setNewEta('');
+    setNewContent('');
+    setShowNotesField(false);
+  };
+
+  const handleToggleComplete = (id: string) => {
+    setWorkNotes((prev) =>
+      prev.map((n) => {
+        if (n.id !== id) return n;
+        const nextCompleted = !n.isCompleted;
+        return {
+          ...n,
+          isCompleted: nextCompleted,
+          status: nextCompleted ? 'Completed' : (n.status === 'Completed' ? 'In Progress' : n.status || 'In Progress'),
+        };
+      })
+    );
+  };
+
+  const handleChangeStatus = (id: string, nextStatus: WorkStatus) => {
+    setWorkNotes((prev) =>
+      prev.map((n) => {
+        if (n.id !== id) return n;
+        return {
+          ...n,
+          status: nextStatus,
+          isCompleted: nextStatus === 'Completed',
+          eta: nextStatus === 'In Progress - No ETA' ? (n.eta || 'No ETA') : n.eta,
+        };
+      })
+    );
+  };
+
+  const handleDeleteNote = (id: string) => {
+    setWorkNotes((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const handleCopyNote = (note: WorkNote) => {
+    const statusText = note.status || (note.isCompleted ? 'Completed' : 'In Progress');
+    const hoursText = note.hours ? ` [${note.hours}]` : '';
+    const etaText = note.eta ? ` [ETA: ${note.eta}]` : (note.status === 'In Progress - No ETA' ? ' [No ETA]' : '');
+    const text = `• [${statusText.toUpperCase()}] ${note.title} (${note.date})${hoursText}${etaText}${
+      note.content ? `\n  - ${note.content.replace(/\n/g, '\n  - ')}` : ''
+    }`;
+    navigator.clipboard.writeText(text);
+    setCopiedId(note.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleCopyStandupList = () => {
+    if (activeWorkList.length === 0) return;
+    const text = activeWorkList
+      .map((n) => {
+        const statusText = n.status || 'Active';
+        const hoursText = n.hours ? ` [${n.hours}]` : '';
+        const etaText = n.eta ? ` [ETA: ${n.eta}]` : (n.status === 'In Progress - No ETA' ? ' [No ETA]' : '');
+        return `• [${statusText.toUpperCase()}] ${n.title} (${n.date})${hoursText}${etaText}${
+          n.content ? `\n  - ${noteTitleWithBullets(n.content)}` : ''
+        }`;
+      })
+      .join('\n\n');
+    navigator.clipboard.writeText(text);
+    setStandupCopiedToast(true);
+    setTimeout(() => setStandupCopiedToast(false), 2500);
+  };
+
+  const noteTitleWithBullets = (content: string) => {
+    return content.replace(/\n/g, '\n  - ');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNote || !editingNote.title.trim()) return;
+
+    const isCompleted = editingNote.status === 'Completed';
+    const noteToSave: WorkNote = {
+      ...editingNote,
+      isCompleted,
+      eta: editingNote.eta?.trim() || (editingNote.status === 'In Progress - No ETA' ? 'No ETA' : undefined),
+    };
+    setWorkNotes((prev) =>
+      prev.map((n) =>
+        n.id === editingNote.id ? noteToSave : n
+      )
+    );
+    setEditingNote(null);
+  };
+
   // Status badge styling helper
-  const renderStatusBadge = (status?: WorkStatus, isCompleted?: boolean) => {
+  const renderStatusBadge = (status?: WorkStatus, isCompleted?: boolean, eta?: string) => {
     const s = status || (isCompleted ? 'Completed' : 'In Progress');
     if (s === 'Completed') {
       return (
         <span className="px-2 py-0.5 bg-black text-white text-[9px] font-black uppercase tracking-wider border border-black shrink-0">
           ✓ Completed
+        </span>
+      );
+    }
+    if (s === 'In Progress - No ETA' || (s === 'In Progress' && eta === 'No ETA')) {
+      return (
+        <span className="px-2 py-0.5 bg-amber-100 text-amber-950 text-[9px] font-black uppercase tracking-wider border border-black shrink-0 flex items-center gap-1">
+          <Clock size={10} className="text-amber-800" /> In Progress · No ETA
         </span>
       );
     }
@@ -263,36 +309,86 @@ export default function WorkNotesTab({
   // Metrics
   const activeCount = workNotes.filter((n) => !n.isCompleted && n.status !== 'Completed').length;
   const completedCount = workNotes.filter((n) => n.isCompleted || n.status === 'Completed').length;
-  const inProgressCount = workNotes.filter((n) => n.status === 'In Progress' && !n.isCompleted).length;
+  const inProgressCount = workNotes.filter((n) => (n.status === 'In Progress' || n.status === 'In Progress - No ETA') && !n.isCompleted).length;
+  const noEtaCount = workNotes.filter((n) => (n.status === 'In Progress - No ETA' || n.eta === 'No ETA') && !n.isCompleted).length;
   const blockedCount = workNotes.filter((n) => n.status === 'Blocked' && !n.isCompleted).length;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Top Tracker Summary Cards */}
+      {/* Toast Notification for Standup Copy */}
+      <AnimatePresence>
+        {standupCopiedToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            className="fixed bottom-6 right-6 z-50 bg-black text-white px-5 py-3 border-2 border-white shadow-2xl flex items-center gap-2.5 text-xs font-bold uppercase tracking-wider"
+          >
+            <Check size={16} className="text-green-400" />
+            <span>Active standup list copied to clipboard!</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Top Tracker Summary Cards with Interactive Filter Clicking */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="border border-black p-5 flex flex-col justify-center items-center bg-white text-black">
+        <button
+          type="button"
+          onClick={() => setFilterStatus('All')}
+          className={`border border-black p-5 flex flex-col justify-center items-center text-left transition-all ${
+            filterStatus === 'All' ? 'bg-white text-black ring-2 ring-black' : 'bg-white text-black hover:bg-neutral-50'
+          }`}
+        >
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Active Work</p>
           <p className="text-3xl sm:text-4xl font-extrabold">{activeCount}</p>
           <span className="text-[9px] font-bold opacity-60 uppercase mt-0.5">items to track</span>
-        </div>
-        <div className="border border-black p-5 flex flex-col justify-center items-center bg-black text-white">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterStatus(filterStatus === 'In Progress' ? 'All' : 'In Progress')}
+          className={`border border-black p-5 flex flex-col justify-center items-center text-left transition-all ${
+            filterStatus === 'In Progress' ? 'bg-black text-white ring-2 ring-neutral-400' : 'bg-black text-white hover:bg-neutral-900'
+          }`}
+        >
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">In Progress</p>
           <p className="text-3xl sm:text-4xl font-extrabold">{inProgressCount}</p>
-          <span className="text-[9px] opacity-70 uppercase mt-0.5">actively ongoing</span>
-        </div>
-        <div className="border border-black p-5 flex flex-col justify-center items-center bg-white text-black">
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap justify-center">
+            <span className="text-[9px] opacity-70 uppercase">actively ongoing</span>
+            {noEtaCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-amber-400 text-black text-[8px] font-black uppercase tracking-wider border border-black">
+                {noEtaCount} No ETA
+              </span>
+            )}
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterStatus(filterStatus === 'Completed' ? 'All' : 'Completed')}
+          className={`border border-black p-5 flex flex-col justify-center items-center text-left transition-all ${
+            filterStatus === 'Completed' ? 'bg-white text-black ring-2 ring-black' : 'bg-white text-black hover:bg-neutral-50'
+          }`}
+        >
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Completed</p>
           <p className="text-3xl sm:text-4xl font-extrabold">{completedCount}</p>
           <span className="text-[9px] font-bold opacity-60 uppercase mt-0.5">finished deliverables</span>
-        </div>
-        <div className="border border-black p-5 flex flex-col justify-center items-center bg-white text-black">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterStatus(filterStatus === 'Blocked' ? 'All' : 'Blocked')}
+          className={`border border-black p-5 flex flex-col justify-center items-center text-left transition-all ${
+            filterStatus === 'Blocked' ? 'bg-white text-black ring-2 ring-red-600' : 'bg-white text-black hover:bg-neutral-50'
+          }`}
+        >
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Blocked Items</p>
           <p className="text-3xl sm:text-4xl font-extrabold text-red-600">{blockedCount}</p>
           <span className="text-[9px] font-bold text-red-600 uppercase mt-0.5">needs attention</span>
-        </div>
+        </button>
       </div>
 
-      {/* Streamlined Quick-Add Work Item Form (Task-Style) */}
+      {/* Streamlined Quick-Add Work Item Form */}
       <form onSubmit={handleAddWorkItem} className="border border-black p-6 bg-white space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-black gap-2">
           <div className="flex items-center gap-2">
@@ -300,7 +396,7 @@ export default function WorkNotesTab({
             <h2 className="text-lg font-extrabold uppercase tracking-tight">Track New Work</h2>
           </div>
           <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">
-            Fast work logger with status &amp; hours tracking
+            Fast work logger with status, ETA &amp; hours tracking
           </span>
         </div>
 
@@ -328,7 +424,7 @@ export default function WorkNotesTab({
             <select 
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value as WorkNoteCategory)}
-              className="w-full border border-black px-3 py-3 focus:outline-none focus:bg-neutral-50 text-xs font-semibold appearance-none bg-white rounded-none"
+              className="w-full border border-black px-3 py-3 focus:outline-none focus:bg-neutral-50 text-xs font-semibold appearance-none bg-white rounded-none cursor-pointer"
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
@@ -336,15 +432,21 @@ export default function WorkNotesTab({
             </select>
           </div>
 
-          {/* Status */}
+          {/* Status (Includes 'In Progress - No ETA') */}
           <div className="md:col-span-2">
             <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 opacity-70">
               Status
             </label>
             <select 
               value={newStatus}
-              onChange={(e) => setNewStatus(e.target.value as WorkStatus)}
-              className="w-full border border-black px-3 py-3 focus:outline-none focus:bg-neutral-50 text-xs font-semibold appearance-none bg-white rounded-none"
+              onChange={(e) => {
+                const val = e.target.value as WorkStatus;
+                setNewStatus(val);
+                if (val === 'In Progress - No ETA' && !newEta) {
+                  setNewEta('No ETA');
+                }
+              }}
+              className="w-full border border-black px-3 py-3 focus:outline-none focus:bg-neutral-50 text-xs font-semibold appearance-none bg-white rounded-none cursor-pointer"
             >
               {STATUS_LIST.map((st) => (
                 <option key={st} value={st}>{st}</option>
@@ -386,21 +488,82 @@ export default function WorkNotesTab({
           </div>
         </div>
 
-        {/* Optional Hours & Details toggle */}
-        <div className="flex items-center gap-4 pt-1">
-          <div className="w-40">
+        {/* Hours, ETA with Quick Presets, and Details Toggle */}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <div className="w-36">
             <input 
               type="text" 
               value={newHours} 
               onChange={(e) => setNewHours(e.target.value)}
               placeholder="Hours (e.g. 2h)"
-              className="w-full border border-black px-3 py-2 text-xs font-semibold placeholder-neutral-400 focus:outline-none"
+              className="w-full border border-black px-3 py-2 text-xs font-semibold placeholder-neutral-400 focus:outline-none focus:bg-neutral-50"
             />
           </div>
+
+          {/* ETA Input with Fast Quick-Select Chips */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="w-44">
+              <input 
+                type="text" 
+                value={newEta} 
+                onChange={(e) => setNewEta(e.target.value)}
+                placeholder="ETA (e.g. No ETA, 5 PM)"
+                className="w-full border border-black px-3 py-2 text-xs font-semibold placeholder-neutral-400 focus:outline-none focus:bg-neutral-50"
+              />
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewStatus('In Progress - No ETA');
+                  setNewEta('No ETA');
+                }}
+                className={`px-2 py-1.5 border border-black transition-all ${
+                  newStatus === 'In Progress - No ETA' || newEta === 'No ETA'
+                    ? 'bg-amber-100 text-amber-950 border-black font-extrabold'
+                    : 'bg-white hover:bg-neutral-100 text-black'
+                }`}
+                title="Set status to In Progress - No ETA"
+              >
+                + No ETA
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewEta('Today EOD');
+                  if (newStatus === 'To Do') setNewStatus('In Progress');
+                }}
+                className="px-2 py-1.5 border border-black bg-white hover:bg-neutral-100 text-black transition-colors"
+              >
+                Today EOD
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewEta('Tomorrow');
+                  if (newStatus === 'To Do') setNewStatus('In Progress');
+                }}
+                className="px-2 py-1.5 border border-black bg-white hover:bg-neutral-100 text-black transition-colors"
+              >
+                Tomorrow
+              </button>
+              {newEta && (
+                <button
+                  type="button"
+                  onClick={() => setNewEta('')}
+                  className="px-1.5 py-1.5 text-neutral-400 hover:text-black transition-colors text-xs"
+                  title="Clear ETA"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={() => setShowNotesField(!showNotesField)}
-            className="text-[10px] font-bold uppercase tracking-wider underline hover:opacity-60 flex items-center gap-1"
+            className="text-[10px] font-bold uppercase tracking-wider underline hover:opacity-60 flex items-center gap-1 ml-auto"
           >
             {showNotesField ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             <span>{showNotesField ? 'Hide Notes' : '+ Add Details / Bullets (Optional)'}</span>
@@ -449,7 +612,7 @@ export default function WorkNotesTab({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search work tasks & deliverables..."
+              placeholder="Search work tasks, status, ETA, notes..."
               className="w-full border border-black pl-9 pr-4 py-2 text-xs font-semibold focus:outline-none focus:bg-neutral-50"
             />
           </div>
@@ -511,24 +674,23 @@ export default function WorkNotesTab({
 
       {/* ACTIVE WORK LIST (CHECKLIST TRACKER) */}
       <div className="border border-black bg-white">
-        <div className="border-b border-black p-6 py-4 flex items-center justify-between">
+        <div className="border-b border-black p-6 py-4 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-extrabold uppercase tracking-tight">Active Work Queue</h2>
             <span className="text-xs font-bold px-2 py-0.5 bg-black text-white uppercase">
               {activeWorkList.length} Active
             </span>
+            {filterStatus !== 'All' && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 border border-black bg-neutral-100">
+                Filtered: {filterStatus}
+              </span>
+            )}
           </div>
 
           {activeWorkList.length > 0 && (
             <button
               type="button"
-              onClick={() => {
-                const text = activeWorkList
-                  .map((n) => `• [${(n.status || 'Active').toUpperCase()}] ${n.title} (${n.date})${n.hours ? ` [${n.hours}]` : ''}${n.content ? `\n  - ${n.content.replace(/\n/g, '\n  - ')}` : ''}`)
-                  .join('\n\n');
-                navigator.clipboard.writeText(text);
-                alert('Active work tasks copied to clipboard for standup!');
-              }}
+              onClick={handleCopyStandupList}
               className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 border border-black hover:bg-black hover:text-white transition-colors flex items-center gap-1.5"
             >
               <Copy size={12} /> <span>Copy Standup List</span>
@@ -537,8 +699,17 @@ export default function WorkNotesTab({
         </div>
 
         {activeWorkList.length === 0 ? (
-          <div className="p-16 text-center text-neutral-500 uppercase tracking-widest text-sm font-bold">
-            No active work tasks found. Log your work above!
+          <div className="p-16 text-center text-neutral-500 uppercase tracking-widest text-sm font-bold space-y-2">
+            <p>No active work tasks found matching filter.</p>
+            {filterStatus !== 'All' && (
+              <button
+                type="button"
+                onClick={() => setFilterStatus('All')}
+                className="text-xs text-black underline uppercase font-extrabold"
+              >
+                Clear filter
+              </button>
+            )}
           </div>
         ) : (
           <ul className="divide-y divide-black/10 flex flex-col">
@@ -575,9 +746,9 @@ export default function WorkNotesTab({
                             {note.title}
                           </span>
 
-                          {/* Status Badge with quick dropdown */}
-                          <div className="relative group inline-block">
-                            {renderStatusBadge(note.status, note.isCompleted)}
+                          {/* Status Badge */}
+                          <div className="inline-block">
+                            {renderStatusBadge(note.status, note.isCompleted, note.eta)}
                           </div>
 
                           {/* Category Badge */}
@@ -591,6 +762,13 @@ export default function WorkNotesTab({
                               <Clock size={10} /> {note.hours}
                             </span>
                           )}
+
+                          {/* ETA Badge (if custom text other than No ETA) */}
+                          {note.eta && note.eta !== 'No ETA' && (
+                            <span className="px-2 py-0.5 border border-black/40 text-[9px] font-semibold text-neutral-800 flex items-center gap-1 bg-white">
+                              <CalendarIcon size={10} /> ETA: {note.eta}
+                            </span>
+                          )}
                         </div>
 
                         {/* Date and Busy Indicator */}
@@ -598,7 +776,7 @@ export default function WorkNotesTab({
                           <span>Date: {note.date}</span>
                           {noteDateBusy.isBusy ? (
                             <span className="text-red-700 font-extrabold flex items-center gap-1">
-                              ● Busy (10AM–7PM)
+                              ● Busy ({noteDateBusy.busyReason})
                             </span>
                           ) : (
                             <span className="text-green-700 font-bold">
@@ -622,7 +800,7 @@ export default function WorkNotesTab({
                       <select
                         value={note.status || 'In Progress'}
                         onChange={(e) => handleChangeStatus(note.id, e.target.value as WorkStatus)}
-                        className="border border-black text-[10px] font-bold uppercase px-2 py-1 bg-white focus:outline-none mr-1"
+                        className="border border-black text-[10px] font-bold uppercase px-2 py-1 bg-white focus:outline-none mr-1 cursor-pointer"
                         title="Change Status"
                       >
                         {STATUS_LIST.map((st) => (
@@ -793,13 +971,20 @@ export default function WorkNotesTab({
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">Status</label>
                   <select
                     value={editingNote.status || (editingNote.isCompleted ? 'Completed' : 'In Progress')}
-                    onChange={(e) => setEditingNote({ ...editingNote, status: e.target.value as WorkStatus })}
-                    className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none bg-white rounded-none"
+                    onChange={(e) => {
+                      const val = e.target.value as WorkStatus;
+                      setEditingNote({ 
+                        ...editingNote, 
+                        status: val,
+                        eta: val === 'In Progress - No ETA' && !editingNote.eta ? 'No ETA' : editingNote.eta,
+                      });
+                    }}
+                    className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none bg-white rounded-none cursor-pointer"
                   >
                     {STATUS_LIST.map((st) => (
                       <option key={st} value={st}>{st}</option>
@@ -811,7 +996,7 @@ export default function WorkNotesTab({
                   <select
                     value={editingNote.category}
                     onChange={(e) => setEditingNote({ ...editingNote, category: e.target.value as WorkNoteCategory })}
-                    className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none bg-white rounded-none"
+                    className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none bg-white rounded-none cursor-pointer"
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -828,6 +1013,51 @@ export default function WorkNotesTab({
                     className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none"
                   />
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">ETA</label>
+                  <input
+                    type="text"
+                    value={editingNote.eta || ''}
+                    onChange={(e) => setEditingNote({ ...editingNote, eta: e.target.value })}
+                    placeholder="e.g. No ETA, 5 PM"
+                    className="w-full border border-black px-2 py-2 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Quick ETA presets in Edit Modal */}
+              <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider flex-wrap">
+                <span className="opacity-60 text-[8px]">Quick ETA:</span>
+                <button
+                  type="button"
+                  onClick={() => setEditingNote({ ...editingNote, status: 'In Progress - No ETA', eta: 'No ETA' })}
+                  className="px-2 py-1 border border-black bg-amber-50 hover:bg-amber-100 text-amber-950 transition-colors"
+                >
+                  No ETA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingNote({ ...editingNote, eta: 'Today EOD' })}
+                  className="px-2 py-1 border border-black bg-white hover:bg-neutral-100 transition-colors"
+                >
+                  Today EOD
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingNote({ ...editingNote, eta: 'Tomorrow' })}
+                  className="px-2 py-1 border border-black bg-white hover:bg-neutral-100 transition-colors"
+                >
+                  Tomorrow
+                </button>
+                {editingNote.eta && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingNote({ ...editingNote, eta: undefined })}
+                    className="px-2 py-1 text-neutral-400 hover:text-black transition-colors"
+                  >
+                    Clear ETA
+                  </button>
+                )}
               </div>
 
               <div>
