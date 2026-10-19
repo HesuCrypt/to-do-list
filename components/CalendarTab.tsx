@@ -12,7 +12,9 @@ import {
   FileText, 
   X, 
   Trash2,
-  CalendarRange
+  CalendarRange,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { 
   Task, 
@@ -76,6 +78,8 @@ export default function CalendarTab({
   const [eventStartTime, setEventStartTime] = useState('09:00');
   const [eventEndTime, setEventEndTime] = useState('17:00');
   const [eventDescription, setEventDescription] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'agenda'>('grid');
+  const [agendaOnlyBusy, setAgendaOnlyBusy] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -334,31 +338,59 @@ export default function CalendarTab({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className="flex border border-black bg-neutral-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`px-2.5 py-1 text-[10px] font-bold uppercase flex items-center gap-1 transition-colors ${
+                  viewMode === 'grid' ? 'bg-black text-white' : 'text-black hover:bg-neutral-200'
+                }`}
+                title="Month Grid View"
+              >
+                <LayoutGrid size={12} />
+                <span className="hidden sm:inline">Grid</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('agenda')}
+                className={`px-2.5 py-1 text-[10px] font-bold uppercase flex items-center gap-1 transition-colors ${
+                  viewMode === 'agenda' ? 'bg-black text-white' : 'text-black hover:bg-neutral-200'
+                }`}
+                title="Agenda / Mobile List View"
+              >
+                <List size={12} />
+                <span>Agenda</span>
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => handleOpenAddEvent()}
-              className="px-3.5 py-2 border border-black bg-black text-white text-[10px] font-bold uppercase tracking-wider hover:opacity-80 transition-opacity flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+              className="px-3 py-1.5 sm:px-3.5 sm:py-2 border border-black bg-black text-white text-[10px] font-bold uppercase tracking-wider hover:opacity-80 transition-opacity flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
               title="Add event with start and end dates"
             >
               <CalendarRange size={14} /> <span>+ Add Event</span>
             </button>
-            <button
-              type="button"
-              onClick={handlePrevMonth}
-              className="p-2 border border-black bg-white hover:bg-black hover:text-white transition-colors"
-              aria-label="Previous Month"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={handleNextMonth}
-              className="p-2 border border-black bg-white hover:bg-black hover:text-white transition-colors"
-              aria-label="Next Month"
-            >
-              <ChevronRight size={18} />
-            </button>
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={handlePrevMonth}
+                className="p-1.5 sm:p-2 border border-black bg-white hover:bg-black hover:text-white transition-colors"
+                aria-label="Previous Month"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleNextMonth}
+                className="p-1.5 sm:p-2 border-y border-r border-black bg-white hover:bg-black hover:text-white transition-colors"
+                aria-label="Next Month"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -390,131 +422,326 @@ export default function CalendarTab({
 
       {/* Main Grid & Selected Day Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Calendar Month Grid */}
+        {/* Calendar Month Grid or Mobile Agenda List */}
         <div className="lg:col-span-8 border border-black bg-white">
-          {/* Day of week headers */}
-          <div className="grid grid-cols-7 border-b border-black text-center bg-neutral-100">
-            {DAYS_OF_WEEK.map((day, idx) => {
-              const isWeekend = idx >= 5;
-              return (
-                <div 
-                  key={day} 
-                  className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider border-r last:border-r-0 border-black ${
-                    isWeekend ? 'bg-neutral-200/60 text-neutral-700' : 'text-black'
-                  }`}
-                >
-                  {day}
-                  {!isWeekend && (
-                    <span className="block text-[8px] font-normal text-red-600 tracking-normal">10AM–7PM</span>
-                  )}
+          {viewMode === 'agenda' ? (
+            <div className="p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black pb-3">
+                <div>
+                  <h3 className="text-sm font-extrabold uppercase tracking-tight">
+                    Monthly Agenda Schedule
+                  </h3>
+                  <p className="text-[10px] opacity-60 uppercase font-semibold">
+                    Touch-friendly scrollable overview of days & work shifts
+                  </p>
                 </div>
-              );
-            })}
-          </div>
+                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agendaOnlyBusy}
+                    onChange={(e) => setAgendaOnlyBusy(e.target.checked)}
+                    className="accent-black w-3.5 h-3.5"
+                  />
+                  <span>Busy / Active Days Only</span>
+                </label>
+              </div>
 
-          {/* Day cells grid */}
-          <div className="grid grid-cols-7 divide-y divide-black/20">
-            {calendarDays.map((day) => {
-              const dayBusy = checkDateBusyStatus(day.dateStr, tasks, workNotes);
-              const dayTasks = tasks.filter((t) => isTaskOnDate(t, day.dateStr));
-              const dayNotes = workNotes.filter((w) => {
-                if (!w.date) return false;
-                const d = w.date.includes('T') ? w.date.split('T')[0] : w.date.trim();
-                return d === day.dateStr;
-              });
+              <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1 divide-y divide-black/10">
+                {calendarDays
+                  .filter((day) => day.isCurrentMonth)
+                  .filter((day) => {
+                    if (!agendaOnlyBusy) return true;
+                    const dayBusy = checkDateBusyStatus(day.dateStr, tasks, workNotes);
+                    return dayBusy.isBusy;
+                  })
+                  .map((day) => {
+                    const dayBusy = checkDateBusyStatus(day.dateStr, tasks, workNotes);
+                    const dayTasks = tasks.filter((t) => isTaskOnDate(t, day.dateStr));
+                    const dayNotes = workNotes.filter((w) => {
+                      if (!w.date) return false;
+                      const d = w.date.includes('T') ? w.date.split('T')[0] : w.date.trim();
+                      return d === day.dateStr;
+                    });
+                    const dObj = new Date(day.dateStr + 'T00:00:00');
+                    const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-              return (
-                <button
-                  key={day.dateStr}
-                  type="button"
-                  onClick={() => setSelectedDateStr(day.dateStr)}
-                  className={`
-                    min-h-[92px] sm:min-h-[115px] p-1.5 sm:p-2 text-left flex flex-col justify-between border-r border-black/20 last:border-r-0 transition-all relative
-                    ${day.isSelected ? 'ring-2 ring-black bg-neutral-100 z-10' : 'hover:bg-neutral-50'}
-                    ${!day.isCurrentMonth ? 'opacity-30 bg-neutral-50/50' : 'bg-white'}
-                  `}
-                >
-                  {/* Top Bar inside cell: Day Number + Status Badge */}
-                  <div className="flex items-start justify-between w-full">
-                    <span
-                      className={`text-xs sm:text-sm font-extrabold ${
-                        day.isToday
-                          ? 'w-6 h-6 rounded-none bg-black text-white flex items-center justify-center text-[10px]'
-                          : day.isSelected
-                          ? 'text-black underline underline-offset-2'
-                          : 'text-black'
+                    return (
+                      <div
+                        key={day.dateStr}
+                        onClick={() => setSelectedDateStr(day.dateStr)}
+                        className={`pt-3 first:pt-0 transition-all cursor-pointer ${
+                          day.isSelected
+                            ? 'p-3 bg-neutral-100 border border-black'
+                            : 'p-3 hover:bg-neutral-50 border border-black/10'
+                        }`}
+                      >
+                        {/* Day Card Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 pb-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-black uppercase tracking-tight">
+                              {dayName}
+                            </span>
+                            {day.isToday && (
+                              <span className="px-1.5 py-0.5 bg-black text-white text-[9px] font-black uppercase tracking-wider">
+                                Today
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {dayBusy.isBusy ? (
+                              <span className="px-2 py-0.5 bg-red-600 text-white text-[9px] font-black uppercase tracking-wider">
+                                BUSY
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-green-600 text-white text-[9px] font-black uppercase tracking-wider">
+                                FREE
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDateStr(day.dateStr);
+                                setQuickAddType('task');
+                              }}
+                              className="px-2 py-0.5 text-[9px] font-bold border border-black hover:bg-black hover:text-white transition-colors"
+                            >
+                              + Add
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Shift Badge if Work Hours */}
+                        {dayBusy.isWorkHours && (
+                          <div className="text-[10px] font-bold text-red-600 uppercase tracking-tight flex items-center gap-1.5 mb-2 bg-red-50 p-1.5 border border-red-200">
+                            <Clock size={12} />
+                            <span>Work Hours (10:00 AM – 7:00 PM Shift)</span>
+                          </div>
+                        )}
+
+                        {/* Tasks and Events */}
+                        {dayTasks.length > 0 && (
+                          <div className="space-y-1.5 mb-2">
+                            {dayTasks.map((task) => (
+                              <div
+                                key={task.id}
+                                className={`text-xs p-2 border flex items-center justify-between gap-2 ${
+                                  task.isCompleted
+                                    ? 'border-neutral-200 bg-neutral-50 text-neutral-400 line-through'
+                                    : 'border-black bg-white'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleTask(task.id);
+                                    }}
+                                    className="shrink-0 focus:outline-none"
+                                  >
+                                    {task.isCompleted ? (
+                                      <CheckCircle size={14} className="text-neutral-400" />
+                                    ) : (
+                                      <Circle size={14} className="text-black" />
+                                    )}
+                                  </button>
+                                  <span className="font-bold truncate">{task.text}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                                  {task.deadline && task.deadline.includes('T') && (
+                                    <span className="font-mono font-semibold opacity-70">
+                                      {formatTime12Hour(task.deadline.split('T')[1])}
+                                    </span>
+                                  )}
+                                  <span className="px-1.5 py-0.5 border border-black/30 font-bold uppercase">
+                                    {task.category}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Work Notes */}
+                        {dayNotes.length > 0 && (
+                          <div className="space-y-1.5">
+                            {dayNotes.map((note) => (
+                              <div
+                                key={note.id}
+                                className="text-xs p-2 border border-blue-200 bg-blue-50/50 flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
+                                  <span className="font-bold truncate text-blue-950">{note.title}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                                  {note.time && (
+                                    <span className="font-mono font-semibold text-blue-800">
+                                      {formatTime12Hour(note.time)}
+                                    </span>
+                                  )}
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-900 font-bold uppercase">
+                                    {note.category}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {dayTasks.length === 0 && dayNotes.length === 0 && !dayBusy.isWorkHours && (
+                          <p className="text-[11px] text-neutral-400 italic">
+                            Free Weekend • No scheduled items
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Day of week headers */}
+              <div className="grid grid-cols-7 border-b border-black text-center bg-neutral-100">
+                {DAYS_OF_WEEK.map((day, idx) => {
+                  const isWeekend = idx >= 5;
+                  return (
+                    <div 
+                      key={day} 
+                      className={`py-1.5 sm:py-2 text-[9px] sm:text-xs font-black uppercase tracking-wider border-r last:border-r-0 border-black ${
+                        isWeekend ? 'bg-neutral-200/60 text-neutral-700' : 'text-black'
                       }`}
                     >
-                      {day.dayNumber}
-                    </span>
-
-                    {/* RED BUSY indicator / pill */}
-                    {dayBusy.isBusy ? (
-                      <span
-                        className="px-1 py-0.2 sm:px-1.5 sm:py-0.5 bg-red-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-wider shrink-0"
-                        title={dayBusy.summaryText}
-                      >
-                        BUSY
-                      </span>
-                    ) : (
-                      <span
-                        className="text-[8px] font-bold text-green-700 uppercase tracking-wider opacity-70"
-                        title="Available / Free Weekend"
-                      >
-                        Free
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Automatic Mon-Fri schedule note in cell */}
-                  {dayBusy.isWorkHours && (
-                    <div className="text-[8px] font-bold text-red-600 uppercase tracking-tight truncate w-full mt-0.5">
-                      10am–7pm Shift
+                      {day}
+                      {!isWeekend && (
+                        <span className="hidden sm:block text-[8px] font-normal text-red-600 tracking-normal">10AM–7PM</span>
+                      )}
                     </div>
-                  )}
+                  );
+                })}
+              </div>
 
-                  {/* Events, Tasks, and Work Notes preview badges in cell */}
-                  <div className="space-y-1 w-full mt-1 overflow-hidden">
-                    {dayTasks.slice(0, 2).map((t) => {
-                      const isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
-                      return (
-                        <div
-                          key={t.id}
-                          className={`text-[8px] sm:text-[9px] px-1 py-0.5 border truncate font-bold flex items-center justify-between gap-0.5 ${
-                            t.isCompleted
-                              ? 'border-neutral-300 bg-neutral-100 line-through text-neutral-400'
-                              : isMultiDay
-                              ? 'border-black bg-neutral-900 text-white'
-                              : 'border-black bg-white text-black'
+              {/* Day cells grid */}
+              <div className="grid grid-cols-7 divide-y divide-black/20">
+                {calendarDays.map((day) => {
+                  const dayBusy = checkDateBusyStatus(day.dateStr, tasks, workNotes);
+                  const dayTasks = tasks.filter((t) => isTaskOnDate(t, day.dateStr));
+                  const dayNotes = workNotes.filter((w) => {
+                    if (!w.date) return false;
+                    const d = w.date.includes('T') ? w.date.split('T')[0] : w.date.trim();
+                    return d === day.dateStr;
+                  });
+
+                  return (
+                    <button
+                      key={day.dateStr}
+                      type="button"
+                      onClick={() => setSelectedDateStr(day.dateStr)}
+                      className={`
+                        min-h-[72px] sm:min-h-[115px] p-1 sm:p-2 text-left flex flex-col justify-between border-r border-black/20 last:border-r-0 transition-all relative
+                        ${day.isSelected ? 'ring-2 ring-black bg-neutral-100 z-10' : 'hover:bg-neutral-50'}
+                        ${!day.isCurrentMonth ? 'opacity-30 bg-neutral-50/50' : 'bg-white'}
+                      `}
+                    >
+                      {/* Top Bar inside cell: Day Number + Status Badge */}
+                      <div className="flex items-start justify-between w-full">
+                        <span
+                          className={`text-xs sm:text-sm font-extrabold ${
+                            day.isToday
+                              ? 'w-5 h-5 sm:w-6 sm:h-6 rounded-none bg-black text-white flex items-center justify-center text-[9px] sm:text-[10px]'
+                              : day.isSelected
+                              ? 'text-black underline underline-offset-2'
+                              : 'text-black'
                           }`}
-                          title={`${t.text}${isMultiDay ? ` (${t.startDate} → ${t.endDate})` : ''}`}
                         >
-                          <span className="truncate">{t.text}</span>
-                          {isMultiDay && (
-                            <span className="text-[7px] bg-amber-400 text-black px-1 font-black uppercase shrink-0">
-                              Event
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {dayTasks.length > 2 && (
-                      <div className="text-[8px] font-bold text-neutral-500">
-                        +{dayTasks.length - 2} more item{dayTasks.length - 2 > 1 ? 's' : ''}
-                      </div>
-                    )}
+                          {day.dayNumber}
+                        </span>
 
-                    {dayNotes.length > 0 && dayTasks.length < 2 && (
-                      <div className="text-[8px] text-blue-700 font-bold truncate flex items-center gap-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block shrink-0" />
-                        <span className="truncate">{dayNotes[0].title}</span>
+                        {/* RED BUSY indicator / pill */}
+                        {dayBusy.isBusy ? (
+                          <span
+                            className="px-1 py-0.2 sm:px-1.5 sm:py-0.5 bg-red-600 text-white text-[7px] sm:text-[9px] font-black uppercase tracking-wider shrink-0"
+                            title={dayBusy.summaryText}
+                          >
+                            BUSY
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[7px] sm:text-[8px] font-bold text-green-700 uppercase tracking-wider opacity-70"
+                            title="Available / Free Weekend"
+                          >
+                            Free
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+
+                      {/* Automatic Mon-Fri schedule note in cell */}
+                      {dayBusy.isWorkHours && (
+                        <div className="hidden sm:block text-[8px] font-bold text-red-600 uppercase tracking-tight truncate w-full mt-0.5">
+                          10am–7pm Shift
+                        </div>
+                      )}
+
+                      {/* Mobile compact dots */}
+                      <div className="sm:hidden flex items-center gap-1 mt-1">
+                        {dayTasks.length > 0 && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-black inline-block" />
+                        )}
+                        {dayNotes.length > 0 && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block" />
+                        )}
+                        {dayTasks.length > 0 && (
+                          <span className="text-[8px] font-bold opacity-60">
+                            {dayTasks.length}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Events, Tasks, and Work Notes preview badges on desktop */}
+                      <div className="hidden sm:block space-y-1 w-full mt-1 overflow-hidden">
+                        {dayTasks.slice(0, 2).map((t) => {
+                          const isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
+                          return (
+                            <div
+                              key={t.id}
+                              className={`text-[8px] sm:text-[9px] px-1 py-0.5 border truncate font-bold flex items-center justify-between gap-0.5 ${
+                                t.isCompleted
+                                  ? 'border-neutral-300 bg-neutral-100 line-through text-neutral-400'
+                                  : isMultiDay
+                                  ? 'border-black bg-neutral-900 text-white'
+                                  : 'border-black bg-white text-black'
+                              }`}
+                              title={`${t.text}${isMultiDay ? ` (${t.startDate} → ${t.endDate})` : ''}`}
+                            >
+                              <span className="truncate">{t.text}</span>
+                              {isMultiDay && (
+                                <span className="text-[7px] bg-amber-400 text-black px-1 font-black uppercase shrink-0">
+                                  Event
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {dayTasks.length > 2 && (
+                          <div className="text-[8px] font-bold text-neutral-500">
+                            +{dayTasks.length - 2} more item{dayTasks.length - 2 > 1 ? 's' : ''}
+                          </div>
+                        )}
+
+                        {dayNotes.length > 0 && dayTasks.length < 2 && (
+                          <div className="text-[8px] text-blue-700 font-bold truncate flex items-center gap-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block shrink-0" />
+                            <span className="truncate">{dayNotes[0].title}</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Selected Day Inspector Side Panel */}

@@ -16,11 +16,17 @@ import {
   Moon, 
   Sparkles, 
   Users, 
-  DollarSign,
-  CalendarCheck,
-  CreditCard,
-  X,
-  FastForward
+  DollarSign, 
+  CalendarCheck, 
+  CreditCard, 
+  X, 
+  FastForward,
+  Database,
+  CheckSquare,
+  Briefcase,
+  Calendar as CalendarIcon,
+  MoreHorizontal,
+  Layers
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
@@ -437,25 +443,46 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [isDark, setIsDark] = useState(false);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setIsClient(true);
-      const storedTasks = localStorage.getItem('dash_tasks');
-      if (storedTasks) setTasks(JSON.parse(storedTasks));
+  const [dbSyncStatus, setDbSyncStatus] = useState<'connected' | 'syncing' | 'offline'>('syncing');
+  const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
+  const [showMobileMore, setShowMobileMore] = useState(false);
 
-      const storedWorkNotes = localStorage.getItem('dash_work_notes');
-      if (storedWorkNotes) {
-        try {
-          setWorkNotes(JSON.parse(storedWorkNotes));
-        } catch {}
+  useEffect(() => {
+    queueMicrotask(async () => {
+      setIsClient(true);
+
+      // 1. Initial quick load from localStorage for zero flash
+      let localTasks: Task[] = [];
+      let localWorkNotes: WorkNote[] = [];
+      let localWorkLogs: WorkLog[] = [];
+      let localBills: Bill[] = [];
+
+      try {
+        const storedTasks = localStorage.getItem('dash_tasks');
+        if (storedTasks) {
+          localTasks = JSON.parse(storedTasks);
+          setTasks(localTasks);
+        }
+        const storedWorkNotes = localStorage.getItem('dash_work_notes');
+        if (storedWorkNotes) {
+          localWorkNotes = JSON.parse(storedWorkNotes);
+          setWorkNotes(localWorkNotes);
+        }
+        const storedWorkLogs = localStorage.getItem('dash_workLogs');
+        if (storedWorkLogs) {
+          localWorkLogs = JSON.parse(storedWorkLogs);
+          setWorkLogs(localWorkLogs);
+        }
+        const storedBills = localStorage.getItem('dash_bills');
+        if (storedBills) {
+          localBills = JSON.parse(storedBills);
+          setBills(localBills);
+        }
+      } catch (e) {
+        console.error('Error reading localStorage initial cache:', e);
       }
 
-      const storedWorkLogs = localStorage.getItem('dash_workLogs');
-      if (storedWorkLogs) setWorkLogs(JSON.parse(storedWorkLogs));
-
-      const storedBills = localStorage.getItem('dash_bills');
-      if (storedBills) setBills(JSON.parse(storedBills));
-
+      // Read initial settings from localStorage
       const storedDayExpensesTotal = localStorage.getItem('dash_dayExpenses_total');
       if (storedDayExpensesTotal && storedDayExpensesTotal !== '') {
         const n = Number(storedDayExpensesTotal);
@@ -497,7 +524,6 @@ export default function Dashboard() {
       else setSamsungRemaining(SAMSUNG_START_BALANCE);
 
       const storedHomePaid = localStorage.getItem('dash_homePaid');
-      // Monthly reset logic for expenses
       const currentMonthKey = getMonthKey(new Date());
       const storedMonthKey = localStorage.getItem('dash_monthKey');
       const storedMonthlyTotal = localStorage.getItem('dash_monthly_total');
@@ -513,7 +539,6 @@ export default function Dashboard() {
 
       const currentGoogleAICycleKey = getGoogleAICycleKey(new Date());
       setGoogleAICycleKey(currentGoogleAICycleKey);
-      const storedGoogleAICycleKey = localStorage.getItem('dash_google_ai_cycleKey');
       const storedGoogleAIMembers = localStorage.getItem('dash_google_ai_members');
       
       let initialMembers: GoogleAIMember[] = [];
@@ -524,8 +549,6 @@ export default function Dashboard() {
       }
 
       const currentGoogleAICycleDate = `${currentGoogleAICycleKey}-24`;
-
-      // Always synchronize members whose paymentDate is before the current cycle date (e.g. Aug 24 -> Sept 24)
       let migratedFromPast = false;
       const synchronizedMembers = initialMembers.map((m) => {
         if (!m.paymentDate || m.paymentDate < currentGoogleAICycleDate) {
@@ -598,6 +621,86 @@ export default function Dashboard() {
 
       const storedTheme = localStorage.getItem('dash_theme');
       if (storedTheme === 'dark') setIsDark(true);
+
+      // 2. Fetch from SQLite Database and sync/migrate
+      try {
+        const res = await fetch('/api/dashboard');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            const dbData = json.data;
+            const hasDbRecords =
+              (dbData.tasks && dbData.tasks.length > 0) ||
+              (dbData.workNotes && dbData.workNotes.length > 0) ||
+              (dbData.workLogs && dbData.workLogs.length > 0) ||
+              (dbData.bills && dbData.bills.length > 0) ||
+              (dbData.settings && Object.keys(dbData.settings).length > 0);
+
+            if (hasDbRecords) {
+              // Load directly from SQLite database
+              if (Array.isArray(dbData.tasks)) setTasks(dbData.tasks);
+              if (Array.isArray(dbData.workNotes)) setWorkNotes(dbData.workNotes);
+              if (Array.isArray(dbData.workLogs)) setWorkLogs(dbData.workLogs);
+              if (Array.isArray(dbData.bills)) setBills(dbData.bills);
+              if (dbData.settings) {
+                const s = dbData.settings;
+                if (typeof s.dayExpensesTotal === 'number') setDayExpensesTotal(s.dayExpensesTotal);
+                if (s.dayExpensesLastReset) setDayExpensesLastReset(s.dayExpensesLastReset);
+                if (s.motoProfile) setMotoProfile(s.motoProfile);
+                if (s.motoAccessories) setMotoAccessories(s.motoAccessories);
+                if (s.motoFuelLogs) setMotoFuelLogs(s.motoFuelLogs);
+                if (s.motoMaintenanceLogs) setMotoMaintenanceLogs(s.motoMaintenanceLogs);
+                if (s.motoParkingLogs) setMotoParkingLogs(s.motoParkingLogs);
+                if (typeof s.meralcoBill === 'number' || s.meralcoBill === '') setMeralcoBill(s.meralcoBill);
+                if (typeof s.samsungRemaining === 'number' || s.samsungRemaining === '') setSamsungRemaining(s.samsungRemaining);
+                if (s.homePaid) setHomePaid(s.homePaid);
+                if (typeof s.monthlyExpensesTotal === 'number') setMonthlyExpensesTotal(s.monthlyExpensesTotal);
+                if (Array.isArray(s.googleAIMembers)) setGoogleAIMembers(s.googleAIMembers);
+                if (typeof s.googleAIPlanCost === 'number') setGoogleAIPlanCost(s.googleAIPlanCost);
+                if (s.theme === 'dark') setIsDark(true);
+              }
+            } else {
+              // DB is empty: migrate existing local data to SQLite
+              const initialPayload = {
+                tasks: localTasks,
+                workNotes: localWorkNotes,
+                workLogs: localWorkLogs,
+                bills: localBills,
+                settings: {
+                  dayExpensesTotal: storedDayExpensesTotal ? Number(storedDayExpensesTotal) : 0,
+                  motoProfile: storedMotoProfile ? JSON.parse(storedMotoProfile) : undefined,
+                  motoAccessories: storedMotoAccessories ? JSON.parse(storedMotoAccessories) : [],
+                  motoFuelLogs: storedMotoFuelLogs ? JSON.parse(storedMotoFuelLogs) : [],
+                  motoMaintenanceLogs: storedMotoMaintenanceLogs ? JSON.parse(storedMotoMaintenanceLogs) : [],
+                  motoParkingLogs: storedMotoParkingLogs ? JSON.parse(storedMotoParkingLogs) : [],
+                  meralcoBill: storedMeralcoBill ? Number(storedMeralcoBill) : '',
+                  samsungRemaining: storedSamsungRemaining ? Number(storedSamsungRemaining) : SAMSUNG_START_BALANCE,
+                  homePaid: storedHomePaid ? JSON.parse(storedHomePaid) : {},
+                  monthlyExpensesTotal: storedMonthlyTotal ? Number(storedMonthlyTotal) : 0,
+                  googleAIMembers: synchronizedMembers,
+                  googleAIPlanCost: storedGoogleAIPlanCost ? Number(storedGoogleAIPlanCost) : 480,
+                  theme: storedTheme === 'dark' ? 'dark' : 'light',
+                },
+              };
+
+              await fetch('/api/dashboard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(initialPayload),
+              });
+            }
+
+            setDbSyncStatus('connected');
+          }
+        } else {
+          setDbSyncStatus('offline');
+        }
+      } catch (err) {
+        console.error('Failed to connect to SQLite API:', err);
+        setDbSyncStatus('offline');
+      } finally {
+        setIsInitialLoadDone(true);
+      }
     });
   }, []);
 
@@ -704,6 +807,74 @@ export default function Dashboard() {
     googleAIPlanCost,
     googleAICycleKey,
     isClient,
+  ]);
+
+  // Auto-persist changes to local SQLite database
+  useEffect(() => {
+    if (!isClient || !isInitialLoadDone) return;
+
+    const timer = setTimeout(() => {
+      setDbSyncStatus('syncing');
+      const payload = {
+        tasks,
+        workNotes,
+        workLogs,
+        bills,
+        settings: {
+          dayExpensesTotal,
+          dayExpensesLastReset,
+          motoProfile,
+          motoAccessories,
+          motoFuelLogs,
+          motoMaintenanceLogs,
+          motoParkingLogs,
+          meralcoBill,
+          samsungRemaining,
+          homePaid,
+          monthlyExpensesTotal,
+          monthKey: getMonthKey(new Date()),
+          googleAIMembers,
+          googleAIPlanCost,
+          googleAICycleKey,
+          theme: isDark ? 'dark' : 'light',
+        },
+      };
+
+      fetch('/api/dashboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => {
+          if (res.ok) setDbSyncStatus('connected');
+          else setDbSyncStatus('offline');
+        })
+        .catch(() => setDbSyncStatus('offline'));
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    tasks,
+    workNotes,
+    workLogs,
+    bills,
+    dayExpensesTotal,
+    dayExpensesLastReset,
+    motoProfile,
+    motoAccessories,
+    motoFuelLogs,
+    motoMaintenanceLogs,
+    motoParkingLogs,
+    meralcoBill,
+    samsungRemaining,
+    homePaid,
+    monthlyExpensesTotal,
+    googleAIMembers,
+    googleAIPlanCost,
+    googleAICycleKey,
+    isDark,
+    isClient,
+    isInitialLoadDone,
   ]);
 
   const calculateLoggedHours = (inTime: string, outTime: string) => {
@@ -3616,20 +3787,45 @@ export default function Dashboard() {
   };
 
   return (
-    <div className={`min-h-screen bg-white text-black font-sans selection:bg-black selection:text-white pb-10 flex flex-col transition-[filter] duration-300 ${isDark ? 'invert' : ''}`}>
+    <div className={`min-h-screen bg-white text-black font-sans selection:bg-black selection:text-white pb-24 md:pb-12 flex flex-col transition-[filter] duration-300 ${isDark ? 'invert' : ''}`}>
       {!isClient ? null : (
       <div className="w-full max-w-7xl mx-auto flex-grow flex flex-col">
         
         {/* Header */}
-        <header className="h-20 border-b-2 border-black flex items-center justify-between px-4 sm:px-8 bg-white shrink-0 mb-8 sm:mb-12 sticky top-0 z-50">
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex w-10 h-10 bg-black items-center justify-center">
-              <span className="text-white font-bold text-xl tracking-tighter">P</span>
+        <header className="h-16 sm:h-20 border-b-2 border-black flex items-center justify-between px-3 sm:px-8 bg-white shrink-0 mb-6 sm:mb-12 sticky top-0 z-40">
+          <div className="flex items-center gap-2.5 sm:gap-4">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-black flex items-center justify-center shrink-0">
+              <span className="text-white font-bold text-base sm:text-xl tracking-tighter">P</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold uppercase tracking-tighter">Personal Dashboard</h1>
+            <div>
+              <h1 className="text-sm sm:text-2xl font-black uppercase tracking-tight sm:tracking-tighter leading-none">
+                Personal Dashboard
+              </h1>
+              {/* SQLite DB Status Badge */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <span
+                  className={`w-2 h-2 rounded-full inline-block ${
+                    dbSyncStatus === 'connected'
+                      ? 'bg-green-600 animate-pulse'
+                      : dbSyncStatus === 'syncing'
+                      ? 'bg-amber-500 animate-spin'
+                      : 'bg-red-500'
+                  }`}
+                />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-600">
+                  {dbSyncStatus === 'connected'
+                    ? 'SQLite DB Synced'
+                    : dbSyncStatus === 'syncing'
+                    ? 'Saving to SQLite...'
+                    : 'Offline Cache'}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-4 ml-auto overflow-x-auto hide-scrollbar w-full sm:w-auto justify-between sm:justify-start">
-            <nav className="flex gap-1">
+
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Desktop Navigation Tabs (Hidden on Mobile) */}
+            <nav className="hidden md:flex gap-1 overflow-x-auto hide-scrollbar">
               {[
                 { id: 'tasks', label: 'Tasks' },
                 { id: 'work-notes', label: 'Work Notes' },
@@ -3643,7 +3839,7 @@ export default function Dashboard() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
                   className={`
-                    px-4 sm:px-6 py-2 border border-black font-semibold text-xs sm:text-sm uppercase transition-colors shrink-0
+                    px-4 sm:px-5 py-2 border border-black font-bold text-xs uppercase transition-colors shrink-0
                     ${activeTab === tab.id 
                       ? 'bg-black text-white' 
                       : 'bg-white text-black hover:bg-black hover:text-white'}
@@ -3653,12 +3849,15 @@ export default function Dashboard() {
                 </button>
               ))}
             </nav>
+
+            {/* Theme Toggle Button */}
             <button
               onClick={() => setIsDark(!isDark)}
-              className="p-2 border border-black bg-white text-black hover:bg-black hover:text-white transition-colors shrink-0 ml-2"
+              className="p-2 border border-black bg-white text-black hover:bg-black hover:text-white transition-colors shrink-0"
               aria-label="Toggle Theme"
+              title="Toggle Theme"
             >
-              {isDark ? <Sun size={18} /> : <Moon size={18} />}
+              {isDark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
           </div>
         </header>
@@ -3695,6 +3894,160 @@ export default function Dashboard() {
           {activeTab === 'motorcycle' && renderMotorcycleTab()}
           {activeTab === 'google-ai' && renderGoogleAITab()}
         </main>
+
+        {/* Mobile Fixed Bottom Navigation Bar */}
+        <nav
+          className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t-2 border-black flex items-center justify-around px-1 py-1 pb-[max(0.6rem,env(safe-area-inset-bottom))] shadow-[0_-4px_10px_rgba(0,0,0,0.06)]"
+          aria-label="Mobile Bottom Navigation"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('tasks');
+              setShowMobileMore(false);
+            }}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              activeTab === 'tasks' && !showMobileMore
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <CheckSquare size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">Tasks</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('work-notes');
+              setShowMobileMore(false);
+            }}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              activeTab === 'work-notes' && !showMobileMore
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <Briefcase size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">Notes</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('calendar');
+              setShowMobileMore(false);
+            }}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              activeTab === 'calendar' && !showMobileMore
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <CalendarIcon size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">Calendar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('overtime');
+              setShowMobileMore(false);
+            }}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              activeTab === 'overtime' && !showMobileMore
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <Clock size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">Overtime</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('finance');
+              setShowMobileMore(false);
+            }}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              activeTab === 'finance' && !showMobileMore
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <DollarSign size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">Finance</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowMobileMore(!showMobileMore)}
+            className={`flex flex-col items-center justify-center flex-1 py-1.5 min-h-[48px] rounded transition-colors ${
+              showMobileMore || activeTab === 'motorcycle' || activeTab === 'google-ai'
+                ? 'bg-black text-white font-black'
+                : 'text-black hover:bg-neutral-100 font-bold'
+            }`}
+          >
+            <MoreHorizontal size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-0.5">More</span>
+          </button>
+        </nav>
+
+        {/* Mobile "More" Drawer Modal */}
+        {showMobileMore && (
+          <div
+            className="md:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-xs flex flex-col justify-end"
+            onClick={() => setShowMobileMore(false)}
+          >
+            <div
+              className="bg-white border-t-2 border-black p-5 space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200 pb-[max(5rem,env(safe-area-inset-bottom)+4.5rem)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-black pb-2">
+                <span className="text-xs font-black uppercase tracking-wider">More Modules</span>
+                <button
+                  type="button"
+                  onClick={() => setShowMobileMore(false)}
+                  className="p-1 hover:bg-neutral-100 border border-black"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('motorcycle');
+                    setShowMobileMore(false);
+                  }}
+                  className={`p-4 border border-black flex flex-col items-center text-center gap-1.5 transition-colors ${
+                    activeTab === 'motorcycle' ? 'bg-black text-white font-black' : 'bg-neutral-50 hover:bg-black hover:text-white'
+                  }`}
+                >
+                  <Sparkles size={20} />
+                  <span className="text-xs font-bold uppercase">Motorcycle Log</span>
+                  <span className="text-[9px] opacity-60">Fuel, Services & Accessories</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('google-ai');
+                    setShowMobileMore(false);
+                  }}
+                  className={`p-4 border border-black flex flex-col items-center text-center gap-1.5 transition-colors ${
+                    activeTab === 'google-ai' ? 'bg-black text-white font-black' : 'bg-neutral-50 hover:bg-black hover:text-white'
+                  }`}
+                >
+                  <Users size={20} />
+                  <span className="text-xs font-bold uppercase">Google AI Pro</span>
+                  <span className="text-[9px] opacity-60">Subscriptions & Members</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
       )}
