@@ -26,7 +26,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import WorkNotesTab from '@/components/WorkNotesTab';
 import CalendarTab from '@/components/CalendarTab';
-import { WorkNote, checkDateBusyStatus } from '@/lib/calendar-utils';
+import { WorkNote, checkDateBusyStatus, formatTime12Hour, parseTimeToStandard } from '@/lib/calendar-utils';
 
 
 // --- TYPES ---
@@ -145,25 +145,30 @@ const formatPHP = (amount: number) => {
 
 const formatDate = (dateString: string) => {
   if (!dateString) return '';
-  // Time-only value (HH:MM)
-  if (/^\d{2}:\d{2}$/.test(dateString)) {
-    const [h, m] = dateString.split(':').map(Number);
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  // Time-only value (HH:MM or H:MM)
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(dateString.trim())) {
+    return formatTime12Hour(dateString);
   }
   const date = new Date(dateString);
   // Ensure we get valid date
   if (isNaN(date.getTime())) return dateString;
-  const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' };
+  const options: Intl.DateTimeFormatOptions = { 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric', 
+    hour: 'numeric', 
+    minute: '2-digit', 
+    hour12: true 
+  };
   // Check if it's just a date without time
   if (dateString.length <= 10) {
     options.hour = undefined;
     options.minute = undefined;
+    options.hour12 = undefined;
     // Add timezone adjustment context if needed or just use UTC to avoid off-by-one errors with YYYY-MM-DD
     return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', options);
   }
-  return date.toLocaleDateString('en-US', options);
+  return date.toLocaleString('en-US', options);
 };
 
 const formatHM = (decimalHours: number) => {
@@ -1390,12 +1395,19 @@ export default function Dashboard() {
                   onChange={(e) => setNewTaskDeadline(e.target.value)}
                   className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
                 />
-                <input
-                  type="time"
-                  value={newTaskDeadlineTime}
-                  onChange={(e) => setNewTaskDeadlineTime(e.target.value)}
-                  className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
-                />
+                <div className="space-y-1">
+                  <input
+                    type="time"
+                    value={newTaskDeadlineTime}
+                    onChange={(e) => setNewTaskDeadlineTime(e.target.value)}
+                    className="w-full border border-black px-4 py-3 focus:outline-none focus:bg-neutral-50 uppercase text-xs font-semibold"
+                  />
+                  {newTaskDeadlineTime && (
+                    <span className="text-[10px] text-neutral-600 font-semibold px-1 block">
+                      Time: {formatTime12Hour(newTaskDeadlineTime)}
+                    </span>
+                  )}
+                </div>
               </div>
             ) : (
               <input
@@ -1572,13 +1584,17 @@ export default function Dashboard() {
                           const nextDate = prompt('Edit deadline date (YYYY-MM-DD). Leave blank to clear:', currentDate);
                           if (nextDate === null) return;
                           const nextTime = nextDate.trim()
-                            ? prompt('Edit deadline time (HH:MM). Leave blank for date-only:', currentTime)
+                            ? prompt(
+                                'Edit deadline time (e.g. 2:00 PM or 14:00). Leave blank for date-only:',
+                                currentTime ? formatTime12Hour(currentTime) : ''
+                              )
                             : '';
                           if (nextTime === null) return;
 
+                          const parsedTime = nextTime.trim() ? parseTimeToStandard(nextTime.trim()) : '';
                           const nextDeadline = nextDate.trim()
-                            ? nextTime && nextTime.trim()
-                              ? `${nextDate.trim()}T${nextTime.trim()}`
+                            ? parsedTime
+                              ? `${nextDate.trim()}T${parsedTime}`
                               : nextDate.trim()
                             : '';
 
@@ -1691,13 +1707,17 @@ export default function Dashboard() {
                             const nextDate = prompt('Edit deadline date (YYYY-MM-DD). Leave blank to clear:', currentDate);
                             if (nextDate === null) return;
                             const nextTime = nextDate.trim()
-                              ? prompt('Edit deadline time (HH:MM). Leave blank for date-only:', currentTime)
+                              ? prompt(
+                                  'Edit deadline time (e.g. 2:00 PM or 14:00). Leave blank for date-only:',
+                                  currentTime ? formatTime12Hour(currentTime) : ''
+                                )
                               : '';
                             if (nextTime === null) return;
 
+                            const parsedTime = nextTime.trim() ? parseTimeToStandard(nextTime.trim()) : '';
                             const nextDeadline = nextDate.trim()
-                              ? nextTime && nextTime.trim()
-                                ? `${nextDate.trim()}T${nextTime.trim()}`
+                              ? parsedTime
+                                ? `${nextDate.trim()}T${parsedTime}`
                                 : nextDate.trim()
                               : '';
 
@@ -1768,7 +1788,9 @@ export default function Dashboard() {
                 />
               </div>
               <div className="sm:col-span-1 sm:border-r border-black/10 sm:px-4">
-                <label className="block text-[10px] font-bold uppercase mb-2 opacity-70">Time In</label>
+                <label className="block text-[10px] font-bold uppercase mb-2 opacity-70">
+                  Time In {timeIn ? `• ${formatTime12Hour(timeIn)}` : ''}
+                </label>
                 <input 
                   type="time" 
                   value={timeIn}
@@ -1782,7 +1804,9 @@ export default function Dashboard() {
                 />
               </div>
               <div className="sm:col-span-1 sm:border-r border-black/10 sm:px-4">
-                <label className="block text-[10px] font-bold uppercase mb-2 opacity-70">Time Out</label>
+                <label className="block text-[10px] font-bold uppercase mb-2 opacity-70">
+                  Time Out {timeOut ? `• ${formatTime12Hour(timeOut)}` : ''}
+                </label>
                 <input 
                   type="time" 
                   value={timeOut}

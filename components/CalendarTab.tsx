@@ -20,7 +20,8 @@ import {
   WorkNote, 
   checkDateBusyStatus, 
   formatDateToYYYYMMDD,
-  isTaskOnDate
+  isTaskOnDate,
+  formatTime12Hour
 } from '@/lib/calendar-utils';
 
 interface CalendarTabProps {
@@ -293,7 +294,7 @@ export default function CalendarTab({
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="border border-black p-5 flex flex-col justify-center items-center bg-white text-black">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-1">Schedule Rule</p>
-          <p className="text-sm font-extrabold uppercase text-center">Mon–Fri 10AM–7PM</p>
+          <p className="text-sm font-extrabold uppercase text-center">Mon–Fri 10:00 AM – 7:00 PM</p>
           <span className="text-[9px] font-bold text-red-600 uppercase tracking-wider mt-0.5">● Automatic Busy</span>
         </div>
         <div className="border border-black p-5 flex flex-col justify-center items-center bg-black text-white">
@@ -366,7 +367,7 @@ export default function CalendarTab({
           <span className="opacity-50">Legend:</span>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 bg-red-600 border border-black inline-block" />
-            <span>Red = Busy Day (Mon–Fri 10AM–7PM / Events)</span>
+            <span>Red = Busy Day (Mon–Fri 10:00 AM – 7:00 PM / Events)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 bg-white border border-green-600 inline-block text-green-700" />
@@ -404,7 +405,7 @@ export default function CalendarTab({
                 >
                   {day}
                   {!isWeekend && (
-                    <span className="block text-[8px] font-normal text-red-600 tracking-normal">10–7</span>
+                    <span className="block text-[8px] font-normal text-red-600 tracking-normal">10AM–7PM</span>
                   )}
                 </div>
               );
@@ -711,7 +712,9 @@ export default function CalendarTab({
               {/* Time & Category Row */}
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div>
-                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Time (Optional)</label>
+                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">
+                    Time (Optional){eventStartTime ? ` • ${formatTime12Hour(eventStartTime)}` : ''}
+                  </label>
                   <input
                     type="time"
                     value={eventStartTime}
@@ -784,7 +787,9 @@ export default function CalendarTab({
               />
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Time (HH:MM)</label>
+                  <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">
+                    Time{quickAddTime ? ` • ${formatTime12Hour(quickAddTime)}` : ''}
+                  </label>
                   <input
                     type="time"
                     value={quickAddTime}
@@ -840,7 +845,9 @@ export default function CalendarTab({
                 required
               />
               <div>
-                <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">Time (Optional)</label>
+                <label className="block text-[9px] font-bold uppercase opacity-60 mb-1">
+                  Time (Optional){quickAddTime ? ` • ${formatTime12Hour(quickAddTime)}` : ''}
+                </label>
                 <input
                   type="time"
                   value={quickAddTime}
@@ -860,11 +867,11 @@ export default function CalendarTab({
           {/* Visual Day Hourly Timeline */}
           <div className="space-y-2">
             <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-70">
-              Timeline (10AM–7PM Work Hours)
+              Timeline (10:00 AM – 7:00 PM Work Hours)
             </h4>
             <div className="border border-black divide-y divide-black/10 text-xs">
               {timelineHours.map((hour) => {
-                const hourFormatted = `${hour < 10 ? '0' + hour : hour}:00`;
+                const hourFormatted = formatTime12Hour(hour);
                 const isWorkHourSlot = selectedBusyStatus.isWorkHours && hour >= 10 && hour <= 18;
                 
                 // Find tasks matching this hour
@@ -882,7 +889,7 @@ export default function CalendarTab({
                       isWorkHourSlot ? 'bg-red-50/80' : 'bg-white'
                     }`}
                   >
-                    <span className="w-12 font-mono font-bold opacity-60 shrink-0 text-[10px]">
+                    <span className="w-16 font-mono font-bold opacity-75 shrink-0 text-[10px]">
                       {hourFormatted}
                     </span>
                     <div className="flex-1 space-y-1">
@@ -976,7 +983,7 @@ export default function CalendarTab({
                             {task.category}
                           </span>
                           {task.deadline && task.deadline.includes('T') && (
-                            <span className="opacity-70">Time: {task.deadline.split('T')[1]}</span>
+                            <span className="opacity-70">Time: {formatTime12Hour(task.deadline.split('T')[1])}</span>
                           )}
                         </div>
                       </div>
@@ -1068,6 +1075,11 @@ export default function CalendarTab({
                           {note.eta && note.eta !== 'No ETA' && (
                             <span className="text-[9px] font-semibold text-neutral-500">
                               (ETA: {note.eta})
+                            </span>
+                          )}
+                          {note.time && (
+                            <span className="text-[9px] font-semibold text-neutral-500">
+                              Time: {formatTime12Hour(note.time)}
                             </span>
                           )}
                         </div>

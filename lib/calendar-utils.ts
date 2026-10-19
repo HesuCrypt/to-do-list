@@ -153,3 +153,59 @@ export function formatDateToYYYYMMDD(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Formats a 24-hour time string (HH:MM or H:MM) or an hour number to 12-hour AM/PM format.
+ * e.g. "14:00" -> "2:00 PM", 14 -> "2:00 PM", "09:30" -> "9:30 AM"
+ */
+export function formatTime12Hour(timeStrOrHour?: string | number | null): string {
+  if (timeStrOrHour === undefined || timeStrOrHour === null || timeStrOrHour === '') return '';
+
+  if (typeof timeStrOrHour === 'number') {
+    const period = timeStrOrHour >= 12 ? 'PM' : 'AM';
+    const hour12 = timeStrOrHour % 12 === 0 ? 12 : timeStrOrHour % 12;
+    return `${hour12}:00 ${period}`;
+  }
+
+  const trimmed = timeStrOrHour.trim();
+  if (!trimmed) return '';
+
+  // If already formatted with AM/PM
+  if (/am|pm/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // If it's a date-time ISO string like 2026-10-19T14:30:00
+  const timeOnly = trimmed.includes('T') ? trimmed.split('T')[1] : trimmed;
+  const parts = timeOnly.split(':');
+  if (parts.length >= 2) {
+    const h = parseInt(parts[0], 10);
+    const m = parts[1].padStart(2, '0').slice(0, 2);
+    if (!isNaN(h)) {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const hour12 = h % 12 === 0 ? 12 : h % 12;
+      return `${hour12}:${m} ${period}`;
+    }
+  }
+
+  return trimmed;
+}
+
+/**
+ * Parses user input (which may be 12-hour like "2:30 PM", "2pm", or 24-hour like "14:30")
+ * into a standard "HH:MM" string.
+ */
+export function parseTimeToStandard(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim();
+  const match12 = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (match12) {
+    let hour = parseInt(match12[1], 10);
+    const minutes = match12[2] || '00';
+    const period = match12[3].toLowerCase();
+    if (period === 'pm' && hour < 12) hour += 12;
+    if (period === 'am' && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, '0')}:${minutes}`;
+  }
+  return trimmed;
+}
